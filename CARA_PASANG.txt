@@ -1,0 +1,18 @@
+PWA AW BATANG - Rekap Log Harian LPA/S
+
+PWA hanya bisa dipasang kalau file ini ditaruh di alamat HTTPS (bukan dibuka langsung dari file di HP).
+
+Cara paling cepat (gratis):
+1. Buka https://app.netlify.com/drop di komputer.
+2. Seret folder ini (atau file ZIP-nya) ke halaman itu.
+3. Buka alamat yang diberikan di HP.
+
+Memasang di HP:
+- Android (Chrome): tekan tombol "Pasang Aplikasi di HP" di halaman, atau menu titik tiga > Install app.
+- iPhone (Safari): tombol Bagikan > Add to Home Screen.
+
+Setelah terpasang, aplikasi bisa dibuka tanpa internet.
+
+Kalau index.html diganti versi baru: naikkan angka VERSION di sw.js (misalnya v1 jadi v2) sebelum upload ulang.
+
+Catatan: data tersimpan di HP masing-masing (bukan di server). Export ke Excel secara berkala sebagai cadangan.
