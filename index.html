@@ -66,6 +66,7 @@ input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}
 .flex{display:flex}
 .flex-1{flex:1 1 0%}
 .flex-col{flex-direction:column}
+.flex-wrap{flex-wrap:wrap}
 .font-bold{font-weight:700}
 .font-extrabold{font-weight:800}
 .font-medium{font-weight:500}
@@ -489,6 +490,17 @@ td[data-c="act"] { white-space: nowrap; }
   .bar-btn { padding: 0 .65rem; }
 }
 @media (orientation: landscape) and (max-height: 520px) { .brand-sub { display: none; } }
+
+/* filter tanggal & cadangan */
+.list-filters { flex-wrap: wrap; }
+.list-filters select { flex: 1 1 0; min-width: 0; }
+@media (max-width: 639px) { .list-filters input { flex: 1 1 100%; } }
+@media (min-width: 640px) { .list-filters { flex-wrap: nowrap; } .list-filters select { flex: none; } .list-filters input { flex: 1 1 0; } }
+.tool-btn.needs-backup::after { content: ""; width: .5rem; height: .5rem; border-radius: 50%; background: #e0b13a; box-shadow: 0 0 0 2px rgba(224,177,58,.35); flex: none; }
+.tool-btn { flex: 1 1 auto; }
+html[data-theme="light"] .tool-btn.needs-backup::after { background: #b02a2a; box-shadow: 0 0 0 2px rgba(176,42,42,.3); }
+
+.tool-btn.tool-btn-icon { flex: 0 0 auto; padding: .3rem .85rem; }
 /* aksen teks mode terang */
 html[data-theme="light"] .text-bronze-300 { color: #6a3f12; }
 html[data-theme="light"] .text-bronze-400 { color: #6a3f12; }
@@ -567,8 +579,9 @@ html[data-theme="light"] .text-olive-400 { color: #3b422d; }
             <div class="tool-row">
                 <button type="button" onclick="compareData()" class="tool-btn bg-slate-800 hover:bg-slate-700 border border-white/10 text-slate-200 transition active:scale-95"><span>🔍</span> Cocokkan</button>
                 <button id="installBtn" type="button" onclick="installApp()" class="tool-btn hidden bg-gradient-to-r from-crimson-700 to-crimson-500 hover:from-crimson-600 hover:to-crimson-400 text-white transition active:scale-95"><span>📲</span> Pasang Aplikasi</button>
+                <button type="button" id="backupBtn" onclick="openBackupModal()" class="tool-btn glass-card hover:bg-white/10 text-slate-200 transition active:scale-95"><span>💾</span> Cadangan</button>
                 <button type="button" onclick="openAliasModal()" class="tool-btn glass-card hover:bg-white/10 text-gold-300 transition active:scale-95"><span>👥</span> Alias</button>
-                <button type="button" onclick="clearAllData()" class="tool-btn bg-crimson-500/10 hover:bg-crimson-500/20 border border-crimson-500/20 text-crimson-300 transition active:scale-95"><span>🗑️</span> Reset</button>
+                <button type="button" onclick="clearAllData()" class="tool-btn tool-btn-icon bg-crimson-500/10 hover:bg-crimson-500/20 border border-crimson-500/20 text-crimson-300 transition active:scale-95" aria-label="Hapus semua data" title="Hapus semua data"><span>🗑️</span></button>
             </div>
         </div>
 
@@ -579,6 +592,7 @@ html[data-theme="light"] .text-olive-400 { color: #3b422d; }
                     <span id="rowCount" class="text-slate-400"></span>
                 </div>
                 <div class="list-filters">
+                    <select id="filterDate" onchange="renderTable()" class="border border-white/15 bg-slate-900/90 text-slate-200 focus:outline-none focus:ring-2 focus:ring-gold-500 font-medium"><option value="all">Semua tanggal</option></select>
                     <select id="filterStatus" onchange="renderTable()" class="border border-white/15 bg-slate-900/90 text-slate-200 focus:outline-none focus:ring-2 focus:ring-gold-500 font-medium">
                         <option value="all">Semua status</option>
                         <option value="match">Match</option>
@@ -678,6 +692,25 @@ Total 318/11.041 m³
                     <button type="button" onclick="closeEdit()" class="bg-white/10 hover:bg-white/20 text-slate-300 px-4 py-2.5 rounded-xl font-medium cursor-pointer transition">Batal</button>
                     <button type="button" onclick="saveEdit()" class="bg-gradient-to-r from-crimson-700 to-crimson-500 hover:from-crimson-600 hover:to-crimson-400 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-crimson-900/50 cursor-pointer transition">Simpan</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="backupModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="glass-panel rounded-3xl max-w-xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto border border-white/20">
+            <div class="flex justify-between items-center border-b border-white/10 pb-3">
+                <h3 class="font-bold text-sm sm:text-base text-white flex items-center gap-2"><span>💾</span> Cadangan Data</h3>
+                <button type="button" onclick="closeBackupModal()" class="text-slate-400 hover:text-white text-xl font-bold cursor-pointer">&times;</button>
+            </div>
+            <div class="space-y-3 text-xs">
+                <p class="text-slate-300 leading-relaxed">Semua data tersimpan hanya di browser HP ini. Simpan cadangan secara berkala (misalnya tiap akhir hari) ke file kecil, lalu kirim ke WhatsApp atau simpan di Drive. File ini bisa dipulihkan di HP lain.</p>
+                <p id="backupInfo" class="text-slate-400"></p>
+                <div class="flex flex-wrap gap-2.5">
+                    <button type="button" onclick="exportBackup()" class="flex-1 bg-gradient-to-r from-crimson-700 to-crimson-500 hover:from-crimson-600 hover:to-crimson-400 text-white px-4 py-2.5 rounded-xl font-semibold shadow-lg shadow-crimson-900/50 cursor-pointer transition">💾 Simpan Cadangan</button>
+                    <button type="button" onclick="document.getElementById('backupFile').click()" class="flex-1 bg-white/10 hover:bg-white/20 text-slate-200 border border-white/15 px-4 py-2.5 rounded-xl font-semibold cursor-pointer transition">📂 Pulihkan dari File</button>
+                    <input type="file" id="backupFile" accept=".json,application/json" class="hidden" onchange="importBackup(event)">
+                </div>
+                <p class="text-[10px] text-slate-400 leading-relaxed">Pemulihan menggabungkan data dari file dengan data yang sudah ada. Laporan yang sama (nomor transaksi dan tanggal sama) tidak akan dobel.</p>
             </div>
         </div>
     </div>
@@ -978,8 +1011,9 @@ const OfflineXlsx = (() => {
             const ids = ['cmpPcs', 'cmpVol', 'cmpRp'];
             if (!excelTotals) { ids.forEach(i => { const el = document.getElementById(i); if (el) el.classList.add('hidden'); }); if (note) note.classList.add('hidden'); return; }
             let t = excelTotals, filt = '';
-            if (t.rows && t.rows.length && logs.length) {
-                const dates = [...new Set(logs.map(l => l.tanggal))];
+            const scoped = dateScoped();
+            if (t.rows && t.rows.length && scoped.length) {
+                const dates = [...new Set(scoped.map(l => l.tanggal))];
                 const sel = t.rows.filter(r => dates.includes(r[0]));
                 if (sel.length) {
                     t = { pcs: t.pcs === null ? null : sel.reduce((a, r) => a + r[1], 0),
@@ -988,9 +1022,9 @@ const OfflineXlsx = (() => {
                     filt = dates.join(', ');
                 }
             }
-            const waPcs = logs.reduce((a, b) => a + Number(b.pcs || 0), 0);
-            const waVol = Math.round(logs.reduce((a, b) => a + Number(b.volume || 0), 0) * 1000) / 1000;
-            const waRp = logs.reduce((a, b) => a + Number(b.totalUang || 0), 0);
+            const waPcs = scoped.reduce((a, b) => a + Number(b.pcs || 0), 0);
+            const waVol = Math.round(scoped.reduce((a, b) => a + Number(b.volume || 0), 0) * 1000) / 1000;
+            const waRp = scoped.reduce((a, b) => a + Number(b.totalUang || 0), 0);
             const line = (id, exTxt, diff, diffTxt) => {
                 const el = document.getElementById(id); if (!el) return;
                 if (exTxt === null) { el.innerHTML = 'Excel: kolom tidak ditemukan'; }
@@ -1075,6 +1109,73 @@ const OfflineXlsx = (() => {
                 l.supplier = String(canonicalSupplier(l.supplierRaw, pool)).toUpperCase();
                 if (l.nopol && l.nopol !== '-') l.nopol = fmtNopol(l.nopol);
             });
+        }
+        function dateScoped() {
+            const el = document.getElementById('filterDate');
+            const v = el ? el.value : 'all';
+            return v === 'all' ? logs : logs.filter(l => l.tanggal === v);
+        }
+        function updateBackupUi() {
+            const last = Number(localStorage.getItem('lpa_last_backup') || 0);
+            const need = logs.length > 0 && (!last || Date.now() - last > 3 * 864e5);
+            const btn = document.getElementById('backupBtn'); if (btn) btn.classList.toggle('needs-backup', need);
+            const info = document.getElementById('backupInfo');
+            if (info) info.textContent = 'Data sekarang: ' + logs.length + ' laporan. ' + (last ? 'Cadangan terakhir: ' + new Date(last).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) + '.' : 'Belum pernah dicadangkan.');
+        }
+        function openBackupModal() { updateBackupUi(); document.getElementById('backupModal').classList.remove('hidden'); }
+        function closeBackupModal() { document.getElementById('backupModal').classList.add('hidden'); }
+        function exportBackup() {
+            const d = new Date(), p = n => String(n).padStart(2, '0');
+            const stamp = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+            const data = { app: 'AW-BATANG-REKAP-LPA', versi: 1, dibuat: d.toISOString(), logs: logs, alias: supplierAlias };
+            const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+            const a = document.createElement('a'); a.href = url; a.download = 'Cadangan_AW_BATANG_' + stamp + '.json';
+            document.body.appendChild(a); a.click();
+            setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
+            localStorage.setItem('lpa_last_backup', String(Date.now()));
+            updateBackupUi();
+            showToast('Cadangan disimpan (' + logs.length + ' laporan).');
+        }
+        function importBackup(event) {
+            const file = event.target.files[0]; event.target.value = '';
+            if (!file) return;
+            const rd = new FileReader();
+            rd.onload = e => {
+                let d;
+                try { d = JSON.parse(e.target.result); } catch (err) { showToast('File cadangan tidak valid.', 'error'); return; }
+                if (!d || d.app !== 'AW-BATANG-REKAP-LPA' || !Array.isArray(d.logs)) { showToast('Ini bukan file cadangan aplikasi ini.', 'error'); return; }
+                const clean = v => String(v == null ? '' : v).replace(/[<>]/g, '');
+                const keyOf = l => (l.noTrans ? l.noTrans + '|' + l.tanggal : 'id|' + l.id);
+                const have = new Set(logs.map(keyOf)), ids = new Set(logs.map(l => l.id));
+                let added = 0, dup = 0;
+                d.logs.forEach(x => {
+                    if (!x || typeof x !== 'object') return;
+                    const l = {
+                        id: clean(x.id) || ('b' + Date.now() + Math.random().toString(36).slice(2, 7)),
+                        tanggal: clean(x.tanggal), supplier: clean(x.supplier), supplierRaw: clean(x.supplierRaw || x.supplier),
+                        nopol: clean(x.nopol) || '-', noTrans: clean(x.noTrans), lpa: clean(x.lpa),
+                        pcs: Number(x.pcs) || 0, volume: (Number(x.volume) || 0).toFixed(3), totalUang: Number(x.totalUang) || 0,
+                        excelStatus: ['Match (Ada di Excel)', 'Belum Ada di Excel'].includes(x.excelStatus) ? x.excelStatus : '',
+                        excelRp: x.excelRp == null ? null : Number(x.excelRp) || 0, selisihRp: x.selisihRp == null ? null : Number(x.selisihRp) || 0,
+                        excelBy: x.excelBy === 'supplier' || x.excelBy === 'trx' ? x.excelBy : null,
+                        raw: clean(x.raw),
+                        detail: Array.isArray(x.detail) ? x.detail.slice(0, 20).map(t => ({ label: clean(t && t.label), pcs: Number(t && t.pcs) || 0, volume: clean(t && t.volume) })) : []
+                    };
+                    const k = keyOf(l);
+                    if (have.has(k)) { dup++; return; }
+                    if (ids.has(l.id)) l.id = 'b' + Date.now() + Math.random().toString(36).slice(2, 7);
+                    have.add(k); ids.add(l.id); logs.push(l); added++;
+                });
+                if (d.alias && typeof d.alias === 'object') {
+                    Object.keys(d.alias).forEach(k => { if (!(k in supplierAlias) && typeof d.alias[k] === 'string') supplierAlias[k] = clean(d.alias[k]); });
+                    localStorage.setItem('lpa_alias_v1', JSON.stringify(supplierAlias));
+                }
+                normalizeAllSuppliers();
+                saveAndRefresh(); closeBackupModal();
+                showToast(added + ' laporan dipulihkan' + (dup ? ', ' + dup + ' sudah ada (dilewati).' : '.'));
+            };
+            rd.onerror = () => showToast('Gagal membaca file.', 'error');
+            rd.readAsText(file);
         }
         function openAliasModal() {
             document.getElementById('aliasInput').value = Object.entries(supplierAlias).map(([k, v]) => k + ' = ' + v).join('\n');
@@ -1236,9 +1337,17 @@ const OfflineXlsx = (() => {
             const filterStatus = filterStatusEl ? filterStatusEl.value : 'all';
 
             if (!tbody) return;
+            const fdEl = document.getElementById('filterDate');
+            if (fdEl) {
+                const cur = fdEl.value, key = x => String(x).split('/').reverse().join('');
+                const dates = [...new Set(logs.map(l => l.tanggal).filter(Boolean))].sort((a, b) => key(a) < key(b) ? 1 : -1);
+                fdEl.innerHTML = '<option value="all">Semua tanggal</option>' + dates.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join('');
+                fdEl.value = dates.includes(cur) ? cur : 'all';
+            }
+            const scoped = dateScoped();
             tbody.innerHTML = '';
 
-            const filtered = logs.filter(item => {
+            const filtered = scoped.filter(item => {
                 const matchesSearch = (item.supplier && item.supplier.toLowerCase().includes(searchVal)) || 
                                       (item.nopol && item.nopol.toLowerCase().includes(searchVal)) || 
                                       (item.noTrans && item.noTrans.toLowerCase().includes(searchVal)) ||
@@ -1257,7 +1366,7 @@ const OfflineXlsx = (() => {
             }
 
             const rcEl = document.getElementById('rowCount');
-            if (rcEl) rcEl.textContent = filtered.length + (filtered.length !== logs.length ? ' dari ' + logs.length : '') + ' data';
+            if (rcEl) rcEl.textContent = filtered.length + (filtered.length !== scoped.length ? ' dari ' + scoped.length : '') + ' data';
             filtered.forEach((item) => {
                 let badgeColor = 'bg-slate-800 text-slate-300 border border-slate-700';
                 if(item.excelStatus === 'Match (Ada di Excel)') badgeColor = 'bg-olive-500/25 text-olive-300 border border-olive-500/40';
@@ -1266,11 +1375,11 @@ const OfflineXlsx = (() => {
                 const tr = document.createElement('tr');
                 tr.className = 'hover:bg-white/5 transition';
                 tr.innerHTML = `
-                    <td data-c="tgl" class="p-3 font-semibold text-slate-200">${item.tanggal || '12/10/2026'}</td>
+                    <td data-c="tgl" class="p-3 font-semibold text-slate-200">${esc(item.tanggal || '-')}</td>
                     <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}</td>
-                    <td data-c="nop" class="p-3 text-slate-300">${item.nopol || '-'}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${item.noTrans || '-'}</span></td>
+                    <td data-c="nop" class="p-3 text-slate-300">${esc(item.nopol || '-')}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${esc(item.noTrans || '-')}</span></td>
                     <td data-c="pcs" data-l="Pcs" class="p-3 text-center font-bold text-white">${item.pcs}${!Number(item.pcs) ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ cek</span>' : ''}${(item.detail && item.detail.length > 1) ? `<br><span class="text-[10px] text-gold-300 font-semibold">${item.detail.length} jenis</span>` : ''}</td>
-                    <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${item.volume}</td>
+                    <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${esc(item.volume)}</td>
                     <td data-c="rp" data-l="Total Uang" class="p-3 text-right font-extrabold text-crimson-300">${formatRupiah(item.totalUang)}${!item.totalUang ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ uang kosong</span>' : ''}${excelRpHtml(item)}</td>
                     <td data-c="st" class="p-3 text-center"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold ${badgeColor}">${statusLabel(item.excelStatus)}</span></td>
                     <td data-c="act" class="p-3 text-center">
@@ -1286,13 +1395,14 @@ const OfflineXlsx = (() => {
             const statTotalVol = document.getElementById('statTotalVol');
             const statTotalRp = document.getElementById('statTotalRp');
 
-            if(statTotalWa) statTotalWa.textContent = logs.length;
-            if(statTotalPcs) statTotalPcs.textContent = logs.reduce((a, b) => a + Number(b.pcs || 0), 0);
+            if(statTotalWa) statTotalWa.textContent = scoped.length;
+            if(statTotalPcs) statTotalPcs.textContent = scoped.reduce((a, b) => a + Number(b.pcs || 0), 0);
             
-            const totalVolNum = logs.reduce((a, b) => a + Number(b.volume || 0), 0);
+            const totalVolNum = scoped.reduce((a, b) => a + Number(b.volume || 0), 0);
             if(statTotalVol) statTotalVol.textContent = totalVolNum.toFixed(3) + ' m³';
-            if(statTotalRp) statTotalRp.textContent = formatRupiah(logs.reduce((a, b) => a + Number(b.totalUang || 0), 0));
+            if(statTotalRp) statTotalRp.textContent = formatRupiah(scoped.reduce((a, b) => a + Number(b.totalUang || 0), 0));
             updateExcelCompare();
+            updateBackupUi();
         }
 
         function openPasteModal() {

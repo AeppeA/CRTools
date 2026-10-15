@@ -1,6 +1,6 @@
 /* Service worker AW BATANG - Rekap Log Harian LPA/S
    Naikkan angka VERSION setiap kali index.html diganti agar HP mengambil versi baru. */
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = 'awb-rekap-' + VERSION;
 const ASSETS = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 
