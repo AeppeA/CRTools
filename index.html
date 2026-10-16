@@ -501,6 +501,8 @@ td[data-c="act"] { white-space: nowrap; }
 html[data-theme="light"] .tool-btn.needs-backup::after { background: #b02a2a; box-shadow: 0 0 0 2px rgba(176,42,42,.3); }
 
 .tool-btn.tool-btn-icon { flex: 0 0 auto; padding: .3rem .85rem; }
+
+@media (min-width: 640px) { #excelFactoryRow { grid-column: 1 / -1; } }
 /* aksen teks mode terang */
 html[data-theme="light"] .text-bronze-300 { color: #6a3f12; }
 html[data-theme="light"] .text-bronze-400 { color: #6a3f12; }
@@ -956,6 +958,11 @@ const OfflineXlsx = (() => {
             if (m) return m[3].padStart(2, '0') + '/' + m[2].padStart(2, '0') + '/' + m[1];
             m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
             if (m) return m[1].padStart(2, '0') + '/' + m[2].padStart(2, '0') + '/' + (m[3].length === 2 ? '20' + m[3] : m[3]);
+            m = t.match(/^(\d{1,2})[\s\-\/.]+([A-Za-z]{3,9})\.?[\s\-\/.,]+(\d{2,4})/);
+            if (m) {
+                const mon = { jan: 1, feb: 2, mar: 3, apr: 4, mei: 5, may: 5, jun: 6, jul: 7, agu: 8, agt: 8, aug: 8, sep: 9, okt: 10, oct: 10, nov: 11, des: 12, dec: 12 }[m[2].slice(0, 3).toLowerCase()];
+                if (mon) return m[1].padStart(2, '0') + '/' + String(mon).padStart(2, '0') + '/' + (m[3].length === 2 ? '20' + m[3] : m[3]);
+            }
             return '';
         }
         function pickCols(rows) {
@@ -967,7 +974,8 @@ const OfflineXlsx = (() => {
             if (!kR) kR = pick([/sum\s*of\s*(rp|total\s*cost|cost)/i, /^\s*total\s*cost\s*$/i, /^\s*rp\s*$/i, /total\s*cost/i, /^rp\b|rupiah|uang|total\s*rp|^cost/i]);
             if (!kR && heads[47] && !/^__EMPTY/.test(String(heads[47]))) kR = heads[47];
             const kD = pick([/^\s*(tanggal|tgl|date)\b/i, /tanggal|tgl|date/i]);
-            return { heads, kP, kV, kR, kD };
+            const kF = pick([/^\s*(pabrik|factory|plant)\b/i, /pabrik|factory|plant/i]);
+            return { heads, kP, kV, kR, kD, kF };
         }
         function filterExcelRows(rows) {
             const heads = (rows.heads && rows.heads.length) ? rows.heads : [...new Set(rows.flatMap(r => Object.keys(r)))];
@@ -979,7 +987,7 @@ const OfflineXlsx = (() => {
         }
         function sheetTotals(rows) {
             if (!rows || !rows.length) return null;
-            const { heads, kP, kV, kR, kD } = pickCols(rows);
+            const { heads, kP, kV, kR, kD, kF } = pickCols(rows);
             if (!kP && !kV && !kR) return null;
             const txtVals = r => Object.values(r).map(String).filter(v => /[a-z]/i.test(v));
             const isGrand = r => txtVals(r).some(v => /^\s*grand\s*total\s*$/i.test(v));
@@ -993,8 +1001,15 @@ const OfflineXlsx = (() => {
             };
             const lbl = k => k ? (heads.indexOf(k) >= 0 ? k + ' (' + colLetter(heads.indexOf(k)) + ')' : k) : null;
             const res = { pcs: val(kP, 'n'), vol: val(kV, 'vol'), rp: val(kR, 'n'), source: grand ? 'Grand Total' : 'jumlah baris', cols: { pcs: lbl(kP), vol: lbl(kV), rp: lbl(kR) } };
-            if (!grand && kD && data.length <= 30000) {
-                res.rows = data.map(r => [normDate(r[kD]), kP ? parseNum(r[kP], 'n') : 0, kV ? parseNum(r[kV], 'vol') : 0, kR ? parseNum(r[kR], 'n') : 0]);
+            if (!grand && (kD || kF) && data.length <= 20000) {
+                res.hasDate = !!kD; res.hasFactory = !!kF;
+                res.rows = data.map(r => [kD ? normDate(r[kD]) : '', kP ? parseNum(r[kP], 'n') : 0, kV ? parseNum(r[kV], 'vol') : 0, kR ? parseNum(r[kR], 'n') : 0, kF ? String(r[kF] == null ? '' : r[kF]).trim() : '']);
+            }
+            if (kF) {
+                const cnt = {};
+                data.forEach(r => { const v = String(r[kF] == null ? '' : r[kF]).trim(); if (v) cnt[v] = (cnt[v] || 0) + 1; });
+                res.factories = Object.keys(cnt).map(n => ({ name: n, count: cnt[n] })).sort((x, y) => y.count - x.count).slice(0, 40);
+                res.cols.factory = lbl(kF);
             }
             return res;
         }
@@ -1009,17 +1024,31 @@ const OfflineXlsx = (() => {
         function updateExcelCompare() {
             const note = document.getElementById('cmpNote');
             const ids = ['cmpPcs', 'cmpVol', 'cmpRp'];
+            const fr0 = document.getElementById('excelFactoryRow'); if (fr0 && !excelTotals) fr0.classList.add('hidden');
             if (!excelTotals) { ids.forEach(i => { const el = document.getElementById(i); if (el) el.classList.add('hidden'); }); if (note) note.classList.add('hidden'); return; }
-            let t = excelTotals, filt = '';
+            let t = excelTotals, filt = '', facTxt = '';
             const scoped = dateScoped();
-            if (t.rows && t.rows.length && scoped.length) {
-                const dates = [...new Set(scoped.map(l => l.tanggal))];
-                const sel = t.rows.filter(r => dates.includes(r[0]));
-                if (sel.length) {
-                    t = { pcs: t.pcs === null ? null : sel.reduce((a, r) => a + r[1], 0),
-                          vol: t.vol === null ? null : Math.round(sel.reduce((a, r) => a + r[2], 0) * 1000) / 1000,
-                          rp: t.rp === null ? null : sel.reduce((a, r) => a + r[3], 0), cols: excelTotals.cols, source: excelTotals.source };
-                    filt = dates.join(', ');
+            const fac = effectiveFactory();
+            const fr = document.getElementById('excelFactoryRow'), fsel = document.getElementById('filterFactory');
+            if (fr && fsel) {
+                const fl = excelTotals.factories || [];
+                if (fl.length > 1) {
+                    fsel.innerHTML = '<option value="all">Semua pabrik</option>' + fl.map(f => '<option value="' + esc(f.name) + '">' + esc(f.name) + ' (' + f.count + ')</option>').join('');
+                    fsel.value = fac; fr.classList.remove('hidden');
+                } else fr.classList.add('hidden');
+            }
+            if (t.rows && t.rows.length) {
+                let rows = t.rows;
+                if (fac !== 'all' && t.hasFactory) { rows = rows.filter(r => r[4] === fac); facTxt = fac; }
+                if (t.hasDate && scoped.length) {
+                    const dates = [...new Set(scoped.map(l => l.tanggal))];
+                    const byDate = rows.filter(r => dates.includes(r[0]));
+                    if (byDate.length) { rows = byDate; filt = dates.join(', '); }
+                }
+                if (facTxt || filt) {
+                    t = { pcs: t.pcs === null ? null : rows.reduce((a, r) => a + r[1], 0),
+                          vol: t.vol === null ? null : Math.round(rows.reduce((a, r) => a + r[2], 0) * 1000) / 1000,
+                          rp: t.rp === null ? null : rows.reduce((a, r) => a + r[3], 0), cols: excelTotals.cols, source: excelTotals.source };
                 }
             }
             const waPcs = scoped.reduce((a, b) => a + Number(b.pcs || 0), 0);
@@ -1043,9 +1072,9 @@ const OfflineXlsx = (() => {
             if (note) {
                 const c = t.cols || {};
                 const wasOpen = note.open;
-                note.innerHTML = '<summary class="cursor-pointer select-none">Selisih = total WA &minus; total Excel <span class="underline">· info sumber</span></summary><div class="mt-1 leading-snug">Kolom Excel: Pcs = ' + esc(c.pcs || '-') + ' · Vol = ' + esc(c.vol || '-') + ' · Rp = ' + esc(c.rp || '-')
+                note.innerHTML = '<summary class="cursor-pointer select-none">Selisih = total WA &minus; total Excel <span class="underline">· info sumber</span></summary><div class="mt-1 leading-snug">Kolom Excel: Pcs = ' + esc(c.pcs || '-') + ' · Vol = ' + esc(c.vol || '-') + ' · Rp = ' + esc(c.rp || '-') + (c.factory ? ' · Pabrik = ' + esc(c.factory) : '')
                     + '<br>' + (filt ? 'Excel dihitung hanya untuk tanggal WA: ' + esc(filt) : (t.source === 'Grand Total' ? 'Sumber: baris Grand Total' : 'Sumber: jumlah semua baris Excel'))
-                    + (excelTotals.removed ? '<br>' + excelTotals.removed + ' baris Revised/Canceled tidak diikutkan' : '') + '</div>';
+                    + (facTxt ? '<br>Pabrik Excel: ' + esc(facTxt) + ' (otomatis dari laporan WA)' : '') + (((excelTotals.factories || []).length > 1 && fac === 'all') ? '<br>⚠ Excel berisi ' + excelTotals.factories.length + ' pabrik (' + esc(excelTotals.factories.slice(0, 4).map(f => f.name).join(', ')) + '), total mencakup semuanya. Unduh hanya 1 pabrik.' : '') + (excelTotals.removed ? '<br>' + excelTotals.removed + ' baris Revised/Canceled tidak diikutkan' : '') + '</div>';
                 note.open = wasOpen;
                 note.classList.remove('hidden');
             }
@@ -1110,6 +1139,32 @@ const OfflineXlsx = (() => {
                 if (l.nopol && l.nopol !== '-') l.nopol = fmtNopol(l.nopol);
             });
         }
+        function effectiveFactory() {
+            if (!excelTotals || !excelTotals.factories || excelTotals.factories.length < 2) return 'all';
+            const f = excelTotals.factory;
+            if (f && f !== 'auto') return f;
+            const key = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const votes = {};
+            logs.forEach(l => {
+                let k = key(l.pabrik);
+                if (!k) {
+                    const raw = String(l.raw || '');
+                    const m = raw.match(/PT\.?\s*SGS\s*([A-Za-z ]{3,30})/i) || raw.match(/tujuan\s*[:=]\s*([^\n]+)/i);
+                    if (!m) return;
+                    k = key(m[1].replace(/^\s*PT\.?\s*SGS/i, ''));
+                }
+                if (k.length < 4) return;
+                excelTotals.factories.forEach(ex => { const e = key(ex.name); if (e && (e.includes(k) || k.includes(e))) votes[ex.name] = (votes[ex.name] || 0) + 1; });
+            });
+            const best = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+            return best ? best[0] : 'all';
+        }
+        function onFactoryChange(v) {
+            if (!excelTotals) return;
+            excelTotals.factory = v;
+            try { localStorage.setItem('lpa_excel_totals_v1', JSON.stringify(excelTotals)); } catch (e) {}
+            if (excelRows.length) compareData(true); else renderTable();
+        }
         function dateScoped() {
             const el = document.getElementById('filterDate');
             const v = el ? el.value : 'all';
@@ -1158,7 +1213,7 @@ const OfflineXlsx = (() => {
                         excelStatus: ['Match (Ada di Excel)', 'Belum Ada di Excel'].includes(x.excelStatus) ? x.excelStatus : '',
                         excelRp: x.excelRp == null ? null : Number(x.excelRp) || 0, selisihRp: x.selisihRp == null ? null : Number(x.selisihRp) || 0,
                         excelBy: x.excelBy === 'supplier' || x.excelBy === 'trx' ? x.excelBy : null,
-                        raw: clean(x.raw),
+                        raw: clean(x.raw), pabrik: clean(x.pabrik),
                         detail: Array.isArray(x.detail) ? x.detail.slice(0, 20).map(t => ({ label: clean(t && t.label), pcs: Number(t && t.pcs) || 0, volume: clean(t && t.volume) })) : []
                     };
                     const k = keyOf(l);
@@ -1425,10 +1480,12 @@ const OfflineXlsx = (() => {
             }
 
             const blocks = splitReports(rawText);
-            let addedCount = 0, warnCount = 0;
+            let addedCount = 0, warnCount = 0, curFactory = '';
 
             blocks.forEach(block => {
                 if(!block.trim()) return;
+                const fm = block.match(/PT\.?\s*SGS\s*([A-Za-z ]{3,30})/i) || block.match(/tujuan\s*[:=]\s*([^\n]+)/i);
+                if (fm) { const nm = fm[1].replace(/^\s*PT\.?\s*SGS/i, '').trim(); if (nm.length >= 3) curFactory = nm; }
 
                 let tanggal = todayStr();
                 let supplier = 'Umum / Tanpa Nama';
@@ -1530,6 +1587,7 @@ const OfflineXlsx = (() => {
                         supplierRaw: supplier,
                         detail: detail,
                         raw: block.trim(),
+                        pabrik: curFactory,
                         lpa: lpa,
                         nopol: nopol,
                         noTrans: noTrans,
@@ -1586,6 +1644,7 @@ const OfflineXlsx = (() => {
         function handleExcelUpload(event) {
             const file = event.target.files[0];
             if(!file) return;
+            event.target.value = '';   // supaya file yang sama bisa dipilih ulang
 
             const label = document.getElementById('excelUploadLabel');
             if(label) label.textContent = file.name;
@@ -1594,7 +1653,11 @@ const OfflineXlsx = (() => {
                 const first = sheets.find(sh => sh.rows.statusKey && sh.rows.length) || sheets.find(sh => sh.rows.length) || { rows: [] };
                 excelRows = first.rows;
                 excelTotals = excelTotalsFromSheets(sheets);
-                if (excelTotals) { excelTotals.file = file.name; localStorage.setItem('lpa_excel_totals_v1', JSON.stringify(excelTotals)); }
+                if (excelTotals) {
+                    excelTotals.file = file.name; excelTotals.factory = 'auto';
+                    try { localStorage.setItem('lpa_excel_totals_v1', JSON.stringify(excelTotals)); }
+                    catch (e1) { try { const keep = excelTotals.rows; delete excelTotals.rows; localStorage.setItem('lpa_excel_totals_v1', JSON.stringify(excelTotals)); excelTotals.rows = keep; } catch (e2) {} }
+                }
                 else localStorage.removeItem('lpa_excel_totals_v1');
                 if (logs.length) compareData(true); else renderTable();
                 showToast(`Excel dimuat (${excelRows.length} baris). ` + (excelTotals ? 'Total WA vs Excel sudah dibandingkan di dashboard.' : 'Kolom Pcs/Vol/Rp tidak ditemukan di Excel.'));
@@ -1610,6 +1673,8 @@ const OfflineXlsx = (() => {
                 return;
             }
             const cols = pickCols(excelRows), kR = cols.kR, kD = cols.kD;
+            const facSel = effectiveFactory();
+            const exRows = (facSel !== 'all' && cols.kF) ? excelRows.filter(r => String(r[cols.kF] == null ? '' : r[cols.kF]).trim() === facSel) : excelRows;
             let matchCount = 0, missingCount = 0;
             const info = new Map();
             logs.forEach(log => {
@@ -1617,11 +1682,11 @@ const OfflineXlsx = (() => {
                     .concat(Object.entries(supplierAlias).filter(e => String(e[1]).toUpperCase() === log.supplier).map(e => e[0])).filter(Boolean);
                 const trx = (log.noTrans || '').toLowerCase();
                 const rowVals = row => Object.values(row).map(v => String(v));
-                let matched = trx ? excelRows.filter(row => rowVals(row).some(v => v.toLowerCase().includes(trx))) : [];
+                let matched = trx ? exRows.filter(row => rowVals(row).some(v => v.toLowerCase().includes(trx))) : [];
                 let by = 'trx';
                 if (!matched.length) {
                     by = 'supplier';
-                    matched = excelRows.filter(row => {
+                    matched = exRows.filter(row => {
                         const cells = rowVals(row).map(nameKey).filter(Boolean);
                         return sKeys.some(k => cells.some(c => nameInCell(k, c)));
                     });
