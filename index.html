@@ -1258,6 +1258,18 @@ const OfflineXlsx = (() => {
             const m = t.replace(/\s+/g, '').match(/^([A-Z]{1,2})(\d{1,4})([A-Z]{1,3})$/);
             return m ? m[1] + ' ' + m[2] + ' ' + m[3] : t;
         }
+        function stripWaPrefix(text) {
+            const p1 = /^\s*[\u200e\u200f]?\[\d{1,2}[\/.]\d{1,2}(?:[\/.]\d{2,4})?,?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\s*[APap]\.?[Mm]\.?)?\]\s*/;
+            const p2 = /^\s*[\u200e\u200f]?\d{1,2}[\/.]\d{1,2}[\/.]\d{2,4},?\s+\d{1,2}[:.]\d{2}(?::\d{2})?(?:\s*[APap]\.?[Mm]\.?)?\s+[-\u2013]\s+/;
+            return String(text).split(/\r?\n/).map(line => {
+                let m = line.match(p1) || line.match(p2);
+                if (!m) return line;
+                let rest = line.slice(m[0].length);
+                const s = rest.match(/^[^:\n]{1,80}?:\s?/);     // "Nama pengirim: "
+                if (s && !/\d\s*[\/\\]\s*\d/.test(s[0])) rest = rest.slice(s[0].length);
+                return rest;
+            }).join('\n');
+        }
         function splitReports(raw) {
             const parts = raw.split(/(?=PT\.SGS|\*PT\.SGS|Lap tgl|Tanggal\s*:|Tanggal\s*;)/i);
             const out = [];
@@ -1282,7 +1294,7 @@ const OfflineXlsx = (() => {
         function extractLogPairs(block) {
             const pairs = []; let prevText = '', lastPair = false;
             block.split(/\r?\n/).forEach(line => {
-                const L = line.replace(/[*_]/g, '');
+                const L = line.replace(/[*_]/g, '').replace(/\brp\b\.?[ \t]*[:=;,]?[ \t]*(?:\d[\d.,]*[A-Za-z]?)?/gi, ' ');
                 if (SKIP_LINE_RE.test(L)) return;
                 const re = /(^|[^\d\/\\.,])(\d(?:[\d.,]*\d)?)\s*(?:pcs|btg|batang)?\s*[\/\\]\s*(\d(?:[\d.,]*\d)?)(?![\d.,]*\s*[\/\\]\s*\d)/gi;
                 let m, found = false;
@@ -1472,7 +1484,7 @@ const OfflineXlsx = (() => {
         function processWaRawText() {
             const rawTextEl = document.getElementById('waRawInput');
             if(!rawTextEl) return;
-            const rawText = rawTextEl.value;
+            const rawText = stripWaPrefix(rawTextEl.value);
 
             if(!rawText.trim()) {
                 showToast('Kotak teks masih kosong!', 'info');
