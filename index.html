@@ -1251,8 +1251,8 @@ const OfflineXlsx = (() => {
         }
 
         // ===== Jenis log: ambil semua pasangan pcs/volume =====
-        const TRANS_LINE_RE = /^[\W_]*(?:no\.?\s*trans\w*|kode\s*t\w*\.?|k\s*transaksi|tr)\b[^\d\n]*\d{6,}/i;
-        const START_LINE_RE = /^[\W_]*(?:permintaan|tanggal|lap\s*tgl|pt\.?\s*sgs)/i;
+        const TRANS_LINE_RE = /^[\W_]*(?:no\.?\s*trans\w*|kode\s*t\w*\.?|k\s*transaksi|kt|tr)\b[^\d\n]*\d{6,}/i;
+        const START_LINE_RE = /^[\W_]*(?:realisasi|permintaan|tanggal|lap\s*tgl|pt\.?\s*sgs)/i;
         function fmtNopol(v) {
             const t = String(v == null ? '' : v).toUpperCase().replace(/[*_]/g, '').replace(/^[^A-Z0-9]+/, '').replace(/[\s.\-]+/g, ' ').trim();
             const m = t.replace(/\s+/g, '').match(/^([A-Z]{1,2})(\d{1,4})([A-Z]{1,3})$/);
@@ -1271,7 +1271,7 @@ const OfflineXlsx = (() => {
             }).join('\n');
         }
         function splitReports(raw) {
-            const parts = raw.split(/(?=PT\.SGS|\*PT\.SGS|Lap tgl|Tanggal\s*:|Tanggal\s*;)/i);
+            const parts = raw.split(/(?=PT\.SGS|\*PT\.SGS|Lap tgl|Tanggal\s*:|Tanggal\s*;|^[ \t]*REALISASI)/im);
             const out = [];
             parts.forEach(part => {
                 const lines = part.split(/\r?\n/), idx = [];
@@ -1293,29 +1293,35 @@ const OfflineXlsx = (() => {
         const SKIP_LINE_RE = /tanggal|lap\s*tgl|nopol|no\s*pol|supplier|suplier|bakul|no\s*\.?\s*trans|kode\s*t|no\s*sakr|no\s*rek|\brek\b|a\/n|\brp\b|lpa|grader|lokasi|asal\s*log|tujuan|permintaan|status|^\s*sub\b|^\s*pt\./i;
         function extractLogPairs(block) {
             const pairs = []; let prevText = '', lastPair = false;
+            const SIZE_RE = /^\s*\d+\s*(?:[-\u2013]\s*\d+|up|ke\s*atas|\+)\s*[:=]?\s*$/i;
+            const SIZE_LINE_RE = /^\s*\d+\s*(?:[-\u2013]\s*\d+|up|ke\s*atas|\+)\s*[:=]/i;
             block.split(/\r?\n/).forEach(line => {
                 const L = line.replace(/[*_]/g, '').replace(/\brp\b\.?[ \t]*[:=;,]?[ \t]*(?:\d[\d.,]*[A-Za-z]?)?/gi, ' ');
                 if (SKIP_LINE_RE.test(L)) return;
                 const re = /(^|[^\d\/\\.,])(\d(?:[\d.,]*\d)?)\s*(?:pcs|btg|batang)?\s*[\/\\]\s*(\d(?:[\d.,]*\d)?)(?![\d.,]*\s*[\/\\]\s*\d)/gi;
-                let m, found = false;
-                const add = (label, pcsT, volT) => {
-                    label = label.replace(/[:=\-–]+/g, ' ').replace(/\s+/g, ' ').trim();
-                    const plain = PLAIN_TOTAL_RE.test(label);
+                let m, found = false, sawSize = false;
+                const add = (rawLabel, pcsT, volT) => {
+                    const isSize = SIZE_RE.test(rawLabel);
+                    if (isSize) sawSize = true;
+                    const label = rawLabel.replace(/[:=\-\u2013]+/g, ' ').replace(/\s+/g, ' ').trim();
+                    const plain = !isSize && PLAIN_TOTAL_RE.test(label);
                     pairs.push({
                         label: (plain || !label) ? prevText : label,
+                        grp: prevText,
                         pcs: Number(String(pcsT).replace(/\./g, '').replace(',', '.')),
                         volume: formatVolumeString(volT),
-                        isGrand: GRAND_RE.test(label) || (plain && lastPair),
-                        plainTotal: plain
+                        isGrand: !isSize && (GRAND_RE.test(label) || (plain && lastPair)),
+                        plainTotal: plain,
+                        isSize: isSize
                     });
                 };
                 while ((m = re.exec(L)) !== null) { found = true; add(L.slice(0, m.index + m[1].length), m[2], m[3]); }
                 if (!found) {
-                    const pm = L.match(/(\d[\d.,]*)\s*(?:pcs|btg|batang|lbr)\b/i), vm = L.match(/(\d(?:[\d.,]*\d)?)\s*m[3³]/i);
+                    const pm = L.match(/(\d[\d.,]*)\s*(?:pcs|btg|batang|lbr)\b/i), vm = L.match(/(\d(?:[\d.,]*\d)?)\s*m[3\u00b3]/i);
                     if (pm && vm) { found = true; add(L.slice(0, Math.min(pm.index, vm.index)), pm[1], vm[1]); }
                 }
-                if (!found && L.trim() && !/\d{5,}/.test(L)) prevText = L.replace(/[:=\-–]+/g, ' ').replace(/\s+/g, ' ').trim();
-                if (L.trim()) lastPair = found;
+                if (!found && L.trim() && !/\d{5,}/.test(L) && !SIZE_LINE_RE.test(L)) prevText = L.replace(/[:=\-\u2013]+/g, ' ').replace(/\s+/g, ' ').trim();
+                if (L.trim()) lastPair = found && !sawSize;
             });
             return pairs;
         }
@@ -1325,10 +1331,13 @@ const OfflineXlsx = (() => {
             const sumOf = arr => ({ pcs: arr.reduce((a, p) => a + p.pcs, 0), mil: arr.reduce((a, p) => a + mil(p), 0) });
             const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume })), warn: !!warn });
             const grand = pairs.filter(p => p.isGrand).pop();
-            const rest = pairs.filter(p => !p.isGrand);
+            // per jenis (judul): kalau jenis itu punya baris Total/Ttl, rincian ukuran tidak ikut dijumlah (cegah hitung dobel)
+            const groups = [], gi = {};
+            pairs.filter(p => !p.isGrand).forEach(p => { const g = p.grp || ''; if (!(g in gi)) { gi[g] = groups.length; groups.push([]); } groups[gi[g]].push(p); });
+            const rest = [];
+            groups.forEach(arr => { const tots = arr.filter(p => p.plainTotal); if (tots.length) rest.push(tots[tots.length - 1]); else arr.forEach(p => rest.push(p)); });
             if (grand) {
                 if (!rest.length) return mk([grand], { pcs: grand.pcs, mil: mil(grand) }, false);
-                // ada rincian per jenis: pakai JUMLAH jenis (Gtt di WA bisa salah ketik), beri tanda jika Gtt berbeda
                 const s1 = sumOf(rest);
                 const warn = s1.pcs !== grand.pcs || Math.abs(s1.mil - mil(grand)) > 1;
                 const r = mk(rest, s1, warn);
@@ -1336,7 +1345,7 @@ const OfflineXlsx = (() => {
                 return r;
             }
             let items = rest;
-            if (rest.length > 1) {   // baris "Total" terakhir = jumlah baris sebelumnya
+            if (rest.length > 1) {
                 const last = rest[rest.length - 1], prev = rest.slice(0, -1), sp = sumOf(prev);
                 if (sp.pcs === last.pcs && Math.abs(sp.mil - mil(last)) <= 1 && (prev.length > 1 || last.plainTotal)) items = prev;
             }
@@ -1513,7 +1522,7 @@ const OfflineXlsx = (() => {
                 let totalUang = 0;
 
                 // Tanggal parser
-                const tMatch = block.match(/(?:Tanggal|Lap tgl|Tanggal\s*;)\s*[:;]?\s*([^\n\r]+)/i);
+                const tMatch = block.match(/(?:Tanggal|Lap tgl|\bTgl)\s*[:;]?\s*([^\n\r]+)/i);
                 if(tMatch) {
                     let rawTgl = tMatch[1].trim();
                     const months = { 'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'mei': '05', 'jun': '06', 'jul': '07', 'ags': '08', 'sep': '09', 'okt': '10', 'nov': '11', 'des': '12' };
@@ -1544,7 +1553,7 @@ const OfflineXlsx = (() => {
                 }
 
                 // Supplier parser
-                const sMatch = block.match(/\b(?:Supplier|Suplier|Bakul|Pemasok)\.?[ \t]*[:;=]?[ \t]*([^\n\r]*)/i);
+                const sMatch = block.match(/\b(?:S(?:u)?p+l[iy]e?r|Bakul|Pemasok)\.?[ \t]*[:;=]?[ \t]*([^\n\r]*)/i);
                 if(sMatch) supplier = cleanSupplier(sMatch[1]) || supplier;
 
                 // Nopol parser
@@ -1556,7 +1565,7 @@ const OfflineXlsx = (() => {
                 if (trLine) noTrans = (trLine.match(/\d{6,}/) || [''])[0];
                 else { const fb = block.match(/\b2\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}\b/); if (fb) noTrans = fb[0]; }
                 // tanggal tidak berlabel -> ambil dari nomor transaksi (yymmdd + urutan)
-                if (!/(?:Tanggal|Lap tgl)/i.test(block)) {
+                if (!/(?:Tanggal|Lap tgl|\bTgl\b)/i.test(block)) {
                     const tm = noTrans.match(/^(\d{2})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3,}$/);
                     if (tm) tanggal = tm[3] + '/' + tm[2] + '/20' + tm[1];
                 }
