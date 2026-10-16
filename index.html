@@ -1213,7 +1213,7 @@ const OfflineXlsx = (() => {
                         excelStatus: ['Match (Ada di Excel)', 'Belum Ada di Excel'].includes(x.excelStatus) ? x.excelStatus : '',
                         excelRp: x.excelRp == null ? null : Number(x.excelRp) || 0, selisihRp: x.selisihRp == null ? null : Number(x.selisihRp) || 0,
                         excelBy: x.excelBy === 'supplier' || x.excelBy === 'trx' ? x.excelBy : null,
-                        raw: clean(x.raw), pabrik: clean(x.pabrik),
+                        raw: clean(x.raw), pabrik: clean(x.pabrik), gtt: clean(x.gtt),
                         detail: Array.isArray(x.detail) ? x.detail.slice(0, 20).map(t => ({ label: clean(t && t.label), pcs: Number(t && t.pcs) || 0, volume: clean(t && t.volume) })) : []
                     };
                     const k = keyOf(l);
@@ -1326,10 +1326,14 @@ const OfflineXlsx = (() => {
             const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume })), warn: !!warn });
             const grand = pairs.filter(p => p.isGrand).pop();
             const rest = pairs.filter(p => !p.isGrand);
-            if (grand) {   // ada Grand total / GTT: itu angka resmi di WA
+            if (grand) {
+                if (!rest.length) return mk([grand], { pcs: grand.pcs, mil: mil(grand) }, false);
+                // ada rincian per jenis: pakai JUMLAH jenis (Gtt di WA bisa salah ketik), beri tanda jika Gtt berbeda
                 const s1 = sumOf(rest);
-                const warn = rest.length > 0 && (s1.pcs !== grand.pcs || Math.abs(s1.mil - mil(grand)) > 1);
-                return mk(rest.length ? rest : [grand], { pcs: grand.pcs, mil: mil(grand) }, warn);
+                const warn = s1.pcs !== grand.pcs || Math.abs(s1.mil - mil(grand)) > 1;
+                const r = mk(rest, s1, warn);
+                r.gtt = warn ? grand.pcs + '/' + grand.volume : '';
+                return r;
             }
             let items = rest;
             if (rest.length > 1) {   // baris "Total" terakhir = jumlah baris sebelumnya
@@ -1443,7 +1447,7 @@ const OfflineXlsx = (() => {
                 tr.className = 'hover:bg-white/5 transition';
                 tr.innerHTML = `
                     <td data-c="tgl" class="p-3 font-semibold text-slate-200">${esc(item.tanggal || '-')}</td>
-                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}</td>
+                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}${item.gtt ? `<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Gtt WA: ${esc(item.gtt)} (beda dengan jumlah jenis)</div>` : ''}</td>
                     <td data-c="nop" class="p-3 text-slate-300">${esc(item.nopol || '-')}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${esc(item.noTrans || '-')}</span></td>
                     <td data-c="pcs" data-l="Pcs" class="p-3 text-center font-bold text-white">${item.pcs}${!Number(item.pcs) ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ cek</span>' : ''}${(item.detail && item.detail.length > 1) ? `<br><span class="text-[10px] text-gold-300 font-semibold">${item.detail.length} jenis</span>` : ''}</td>
                     <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${esc(item.volume)}</td>
@@ -1563,7 +1567,7 @@ const OfflineXlsx = (() => {
 
                 // Volume & Pcs: jumlahkan semua jenis log dalam satu laporan
                 const sum = summarizePairs(extractLogPairs(block));
-                pcs = sum.pcs; volumeStr = sum.volume; const detail = sum.detail;
+                pcs = sum.pcs; volumeStr = sum.volume; const detail = sum.detail; const gttNote = sum.gtt || '';
                 if(sum.warn) warnCount++;
                 if(pcs === 0) {
                     const fallbackVol = block.match(/([\d\.,]+)\s*m[3³]/i);
@@ -1600,6 +1604,7 @@ const OfflineXlsx = (() => {
                         detail: detail,
                         raw: block.trim(),
                         pabrik: curFactory,
+                        gtt: gttNote,
                         lpa: lpa,
                         nopol: nopol,
                         noTrans: noTrans,
