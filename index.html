@@ -695,6 +695,10 @@ Total 318/11.041 m³
                 <label class="block text-slate-300">Tanggal (dd/mm/yyyy)<input id="editTgl" type="text" inputmode="numeric" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
                 <label class="block text-slate-300">Supplier<input id="editSupplier" type="text" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
                 <div class="grid grid-cols-2 gap-3">
+                    <label class="block text-slate-300">No Transaksi<input id="editTrx" type="text" inputmode="numeric" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
+                    <label class="block text-slate-300">Nopol<input id="editNopol" type="text" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
                     <label class="block text-slate-300">Total Pcs<input id="editPcs" type="text" inputmode="numeric" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
                     <label class="block text-slate-300">Volume (m³)<input id="editVol" type="text" inputmode="decimal" class="w-full mt-1 px-3 py-2 glass-input rounded-xl focus:outline-none"></label>
                 </div>
@@ -1673,6 +1677,8 @@ const OfflineXlsx = (() => {
             const l = logs.find(x => x.id === id); if (!l) return;
             editingId = id;
             document.getElementById('editTgl').value = l.tanggal || '';
+            document.getElementById('editTrx').value = l.noTrans || '';
+            document.getElementById('editNopol').value = (l.nopol && l.nopol !== '-') ? l.nopol : '';
             document.getElementById('editSupplier').value = l.supplier || '';
             document.getElementById('editPcs').value = l.pcs || 0;
             document.getElementById('editVol').value = l.volume || '0.000';
@@ -1684,6 +1690,8 @@ const OfflineXlsx = (() => {
         function saveEdit() {
             const l = logs.find(x => x.id === editingId); if (!l) return closeEdit();
             const nd = normDate(document.getElementById('editTgl').value); if (nd) l.tanggal = nd;
+            l.noTrans = String(document.getElementById('editTrx').value).replace(/[<>]/g, '').trim();
+            l.nopol = fmtNopol(document.getElementById('editNopol').value) || '-';
             l.supplierRaw = cleanSupplier(document.getElementById('editSupplier').value) || l.supplierRaw;
             l.pcs = Number(String(document.getElementById('editPcs').value).replace(/[^\d]/g, '')) || 0;
             l.volume = formatVolumeString(String(document.getElementById('editVol').value));
