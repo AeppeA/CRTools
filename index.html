@@ -1177,6 +1177,7 @@ const OfflineXlsx = (() => {
                     if (!m) return;
                     k = key(m[1].replace(/^\s*PT\.?\s*SGS/i, ''));
                 }
+                k = ({ byp: 'banyuputih' })[k] || k;
                 if (k.length < 4) return;
                 excelTotals.factories.forEach(ex => { const e = key(ex.name); if (e && (e.includes(k) || k.includes(e))) votes[ex.name] = (votes[ex.name] || 0) + 1; });
             });
@@ -1624,7 +1625,7 @@ const OfflineXlsx = (() => {
                 const toRp = t => { let x = String(t).trim().replace(/[\s.,\-]+$/, ''); x = x.replace(/,\d{1,2}$/, ''); const d = x.replace(/[^\d]/g, ''); return d ? Number(d) : 0; };
                 const plain = block.replace(/[*_]/g, '');
                 let amounts = [];
-                const rpRe = /\brp\b\.?[ \t]*[:=;,]?[ \t]*(\d[\d.,]*)/gi; let rm;
+                const rpRe = /\brp\b\.?[ \t]*[:=;,]?[ \t]*(\d{1,3}(?:[ \t]\d{3}(?!\d))+(?:[.,]\d{3})*|\d[\d.,]*)/gi; let rm;
                 while ((rm = rpRe.exec(plain)) !== null) { const v = toRp(rm[1]); if (v >= 1000) amounts.push(v); }
                 if (!amounts.length) {
                     plain.split(/\r?\n/).forEach(L => {
