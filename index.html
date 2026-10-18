@@ -510,6 +510,10 @@ html[data-theme="light"] .tool-btn.needs-backup::after { background: #b02a2a; bo
 /* baris yang tidak dihitung (status Excel bukan approved/delivery/need_approval/received) */
 .row-excluded > td { opacity: .5; }
 .row-excluded > td[data-c="st"], .row-excluded > td[data-c="act"] { opacity: 1; }
+
+/* sel yang beda dengan Excel */
+.cell-diff { background: rgba(224,177,58,.30); border-radius: .3rem; padding: 0 .3rem; }
+html[data-theme="light"] .cell-diff { background: rgba(168,121,18,.30); }
 /* aksen teks mode terang */
 html[data-theme="light"] .text-bronze-300 { color: #6a3f12; }
 html[data-theme="light"] .text-bronze-400 { color: #6a3f12; }
@@ -608,6 +612,7 @@ html[data-theme="light"] .text-olive-400 { color: #3b422d; }
                         <option value="match">Match</option>
                         <option value="missing">Belum ada</option>
                         <option value="excluded">Tidak dihitung</option>
+                        <option value="diff">Ada beda</option>
                     </select>
                     <input type="text" id="searchInput" oninput="renderTable()" placeholder="Cari supplier / nopol..." class="glass-input focus:outline-none">
                 </div>
@@ -988,7 +993,8 @@ const OfflineXlsx = (() => {
             if (!kR && heads[47] && !/^__EMPTY/.test(String(heads[47]))) kR = heads[47];
             const kD = pick([/^\s*(tanggal|tgl|date)\b/i, /tanggal|tgl|date/i]);
             const kF = pick([/^\s*(pabrik|factory|plant)\b/i, /pabrik|factory|plant/i]);
-            return { heads, kP, kV, kR, kD, kF };
+            const kT = pick([/^\s*(no\.?\s*)?trans(aksi)?\s*(no|id|number)?\s*$/i, /no\.?\s*trans|transaction\s*(no|id|number|code)|kode\s*trans|nomor\s*trans|^\s*kt\s*$|trx/i]);
+            return { heads, kP, kV, kR, kD, kF, kT };
         }
         const OK_STATUS = ['approved', 'delivery', 'need_approval', 'received'];
         function normStatus(v) { return String(v == null ? '' : v).trim().toLowerCase().replace(/[\s\-]+/g, '_'); }
@@ -1434,6 +1440,7 @@ const OfflineXlsx = (() => {
         }
 
         function renderTable() {
+            if (window.__dupMsg) { const m = window.__dupMsg; window.__dupMsg = null; setTimeout(() => showToast(m), 300); }
             const tbody = document.getElementById('logTableBody');
             const emptyState = document.getElementById('emptyState');
             const searchInputEl = document.getElementById('searchInput');
@@ -1452,6 +1459,7 @@ const OfflineXlsx = (() => {
             }
             const scoped = dateScoped();
             const counted = scoped.filter(l => l.txCounted !== false);
+            const trxCount = {}; logs.forEach(l => { if (l.noTrans) trxCount[l.noTrans] = (trxCount[l.noTrans] || 0) + 1; });
             tbody.innerHTML = '';
 
             const filtered = scoped.filter(item => {
@@ -1464,6 +1472,7 @@ const OfflineXlsx = (() => {
                 if(filterStatus === 'match') return item.excelStatus === 'Match (Ada di Excel)';
                 if(filterStatus === 'missing') return item.excelStatus === 'Belum Ada di Excel';
                 if(filterStatus === 'excluded') return item.txCounted === false;
+                if(filterStatus === 'diff') return (item.beda || []).length > 0;
                 return true;
             });
 
@@ -1485,11 +1494,11 @@ const OfflineXlsx = (() => {
                 tr.className = 'hover:bg-white/5 transition' + (item.txCounted === false ? ' row-excluded' : '');
                 tr.innerHTML = `
                     <td data-c="tgl" class="p-3 font-semibold text-slate-200">${esc(item.tanggal || '-')}</td>
-                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}${item.gtt ? `<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Gtt WA: ${esc(item.gtt)} (beda dengan jumlah jenis)</div>` : ''}</td>
-                    <td data-c="nop" class="p-3 text-slate-300">${esc(item.nopol || '-')}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${esc(item.noTrans || '-')}</span></td>
-                    <td data-c="pcs" data-l="Pcs" class="p-3 text-center font-bold text-white">${item.pcs}${!Number(item.pcs) ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ cek</span>' : ''}${(item.detail && item.detail.length > 1) ? `<br><span class="text-[10px] text-gold-300 font-semibold">${item.detail.length} jenis</span>` : ''}</td>
-                    <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${esc(item.volume)}</td>
-                    <td data-c="rp" data-l="Total Uang" class="p-3 text-right font-extrabold text-crimson-300">${formatRupiah(item.totalUang)}${!item.totalUang ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ uang kosong</span>' : ''}${excelRpHtml(item)}</td>
+                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}${(item.beda && item.beda.length) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Beda dengan Excel: ' + item.beda.map(b => ({ trx: 'No Trans', pcs: 'Pcs', vol: 'Volume', rp: 'Uang' })[b.f]).join(', ') + (item.bedaBy === 'supplier' ? ' (per supplier)' : '') + '</div>' : ''}${(item.noTrans && trxCount[item.noTrans] > 1) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ No Trans dobel</div>' : ''}${item.gtt ? `<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Gtt WA: ${esc(item.gtt)} (beda dengan jumlah jenis)</div>` : ''}</td>
+                    <td data-c="nop" class="p-3 text-slate-300">${esc(item.nopol || '-')}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${dv(item, 'trx', esc(item.noTrans || '-'))}</span></td>
+                    <td data-c="pcs" data-l="Pcs" class="p-3 text-center font-bold text-white">${dv(item, 'pcs', item.pcs)}${!Number(item.pcs) ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ cek</span>' : ''}${(item.detail && item.detail.length > 1) ? `<br><span class="text-[10px] text-gold-300 font-semibold">${item.detail.length} jenis</span>` : ''}</td>
+                    <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${dv(item, 'vol', esc(item.volume))}</td>
+                    <td data-c="rp" data-l="Total Uang" class="p-3 text-right font-extrabold text-crimson-300">${dvHi(item, 'rp', formatRupiah(item.totalUang))}${!item.totalUang ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ uang kosong</span>' : ''}${excelRpHtml(item)}</td>
                     <td data-c="st" class="p-3 text-center"><span class="px-2.5 py-1 rounded-full text-[10px] font-bold ${badgeColor}">${statusLabel(item)}</span>${item.txStatus ? '<div class="text-[9px] font-bold uppercase tracking-wide mt-1 text-slate-400">' + esc(item.txStatus) + '</div>' : ''}</td>
                     <td data-c="act" class="p-3 text-center">
                         <button type="button" onclick="openEdit('${item.id}')" class="text-gold-300 hover:text-white font-bold cursor-pointer transition mr-2">Edit</button>
@@ -1513,11 +1522,14 @@ const OfflineXlsx = (() => {
             const cwa = document.getElementById('cmpWa');
             if (cwa) {
                 const exc = scoped.filter(l => l.txCounted === false);
+                const dif = counted.filter(l => (l.beda || []).length);
+                let h = '';
                 if (exc.length) {
                     const cnt = {}; exc.forEach(l => { const k = l.txStatus || '-'; cnt[k] = (cnt[k] || 0) + 1; });
-                    cwa.innerHTML = '<b class="text-gold-300">' + exc.length + ' tidak dihitung</b><br>' + esc(Object.keys(cnt).map(k => k + ' ' + cnt[k]).join(', '));
-                    cwa.classList.remove('hidden');
-                } else cwa.classList.add('hidden');
+                    h += '<b class="text-gold-300">' + exc.length + ' tidak dihitung</b><br>' + esc(Object.keys(cnt).map(k => k + ' ' + cnt[k]).join(', '));
+                }
+                if (dif.length) h += (h ? '<br>' : '') + '<b class="text-gold-300">' + dif.length + ' beda dengan Excel</b>';
+                if (h) { cwa.innerHTML = h; cwa.classList.remove('hidden'); } else cwa.classList.add('hidden');
             }
             updateExcelCompare();
             updateBackupUi();
@@ -1543,7 +1555,7 @@ const OfflineXlsx = (() => {
             }
 
             const blocks = splitReports(rawText);
-            let addedCount = 0, warnCount = 0, curFactory = '';
+            let addedCount = 0, warnCount = 0, curFactory = '', dupSkipped = 0; const dupConflict = [];
 
             blocks.forEach(block => {
                 if(!block.trim()) return;
@@ -1644,7 +1656,7 @@ const OfflineXlsx = (() => {
 
                 const hasId = !!noTrans || supplier !== 'Umum / Tanpa Nama' || nopol !== '-';
                 if ((pcs > 0 || Number(volumeStr) > 0 || supplier !== 'Umum / Tanpa Nama') && (hasId || (pcs > 0 && Number(volumeStr) > 0))) {
-                    logs.unshift({
+                    const newLog = {
                         id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
                         tanggal: tanggal,
                         supplier: supplier,
@@ -1660,8 +1672,10 @@ const OfflineXlsx = (() => {
                         volume: volumeStr,
                         totalUang: totalUang || 0,
                         excelStatus: 'Belum Dicek'
-                    });
-                    addedCount++;
+                    };
+                    const dupe = findDuplicate(newLog);
+                    if (dupe) { if (sameVals(dupe, newLog)) dupSkipped++; else dupConflict.push(newLog.noTrans || newLog.supplier); }
+                    else { logs.unshift(newLog); addedCount++; }
                 }
             });
 
@@ -1670,7 +1684,11 @@ const OfflineXlsx = (() => {
             normalizeAllSuppliers();
             if (excelRows.length) compareData(true);
             saveAndRefresh();
-            showToast(`Berhasil menambahkan ${addedCount} data dari teks WhatsApp!` + (warnCount ? ` Perhatian: ${warnCount} laporan total WA tidak sama dengan jumlah jenis log.` : ''));
+            let msg = addedCount ? `Berhasil menambahkan ${addedCount} data dari teks WhatsApp!` : 'Tidak ada data baru.';
+            if (dupSkipped) msg += ` ${dupSkipped} laporan sudah ada (dobel dilewati).`;
+            if (dupConflict.length) msg += ` ⚠ Nomor transaksi sama tapi isi berbeda, tidak ditambahkan: ${dupConflict.join(', ')}. Hapus yang lama jika ingin menggantinya.`;
+            if (warnCount) msg += ` Perhatian: ${warnCount} laporan total WA tidak sama dengan jumlah jenis log.`;
+            showToast(msg);
         }
 
         let editingId = null;
@@ -1771,12 +1789,27 @@ const OfflineXlsx = (() => {
                 if (!matched.length) {
                     log.excelStatus = 'Belum Ada di Excel'; missingCount++;
                     log.excelRp = null; log.selisihRp = null; log.excelBy = null;
+                    log.beda = []; log.bedaBy = null;
                     log.txStatus = ''; log.txCounted = true;   // tidak ada di Excel: tetap dihitung agar selisihnya terlihat
                     return;
                 }
                 log.excelStatus = 'Match (Ada di Excel)'; matchCount++;
                 log.txCounted = act.length > 0;
                 log.txStatus = kS ? [...new Set(matched.map(r => String(r[kS] == null ? '' : r[kS]).trim().toUpperCase()).filter(Boolean))].join(' / ') : '';
+                const grpLogs = by === 'supplier' ? logs.filter(l => nameKey(l.supplier) === nameKey(log.supplier) && l.tanggal === log.tanggal && (!info.get(l) || !info.get(l).matched.length || info.get(l).act.length > 0)) : [log];
+                log.beda = []; log.bedaBy = by;
+                if (act.length) {
+                    const waP = grpLogs.reduce((a, l) => a + Number(l.pcs || 0), 0);
+                    const waV = Math.round(grpLogs.reduce((a, l) => a + Number(l.volume || 0), 0) * 1000);
+                    const waR = Math.round(grpLogs.reduce((a, l) => a + Number(l.totalUang || 0), 0));
+                    if (cols.kP) { const ex = act.reduce((a, r) => a + parseNum(r[cols.kP], 'n'), 0); if (ex !== waP) log.beda.push({ f: 'pcs', ex: String(ex) }); }
+                    if (cols.kV) { const ex = Math.round(act.reduce((a, r) => a + parseNum(r[cols.kV], 'vol'), 0) * 1000); if (ex !== waV) log.beda.push({ f: 'vol', ex: (ex / 1000).toFixed(3) }); }
+                    if (kR) { const ex = Math.round(act.reduce((a, r) => a + parseNum(r[kR], 'n'), 0)); if (ex !== waR) log.beda.push({ f: 'rp', ex: formatRupiah(ex) }); }
+                    if (cols.kT && log.noTrans) {
+                        const set = [...new Set(act.map(r => String(r[cols.kT] == null ? '' : r[cols.kT]).trim()).filter(Boolean))];
+                        if (set.length && !set.some(x => x.includes(log.noTrans) || log.noTrans.includes(x))) log.beda.push({ f: 'trx', ex: set.join(' / ') });
+                    }
+                }
                 if (kR && act.length) {
                     const ex = act.reduce((a, r) => a + parseNum(r[kR], 'n'), 0);
                     let wa = Number(log.totalUang || 0);
@@ -1786,6 +1819,26 @@ const OfflineXlsx = (() => {
             });
             saveAndRefresh();
             if (!silent) showToast(`Selesai! ${matchCount} cocok, ${missingCount} belum masuk Excel.`);
+        }
+        function bedaOf(item, f) { return (item.beda || []).find(b => b.f === f); }
+        function dv(item, f, html) {
+            const b = bedaOf(item, f);
+            return b ? '<span class="cell-diff">' + html + '</span><br><span class="text-[10px] text-gold-300 font-semibold">Excel: ' + esc(b.ex) + '</span>' : html;
+        }
+        function dvHi(item, f, html) { return bedaOf(item, f) ? '<span class="cell-diff">' + html + '</span>' : html; }
+        function dupSig(l) { return l.noTrans ? 'T|' + String(l.noTrans).trim() : 'S|' + l.tanggal + '|' + nameKey(l.supplierRaw || l.supplier) + '|' + String(l.nopol || ''); }
+        function sameVals(a, b) { return Number(a.pcs) === Number(b.pcs) && Math.round(Number(a.volume) * 1000) === Math.round(Number(b.volume) * 1000) && Number(a.totalUang) === Number(b.totalUang); }
+        function findDuplicate(l) { const k = dupSig(l); return logs.find(x => dupSig(x) === k && (l.noTrans || sameVals(x, l))); }
+        function dedupeLogs() {
+            const seen = new Map(), keep = []; let removed = 0;
+            logs.forEach(l => {
+                const k = dupSig(l), prev = seen.get(k);
+                if (prev && sameVals(prev, l)) { removed++; return; }
+                if (!prev) seen.set(k, l);
+                keep.push(l);
+            });
+            if (removed) logs = keep;
+            return removed;
         }
         function statusLabel(item) {
             if (item && item.txCounted === false) return '⊘ Tidak dihitung';
@@ -1820,6 +1873,7 @@ const OfflineXlsx = (() => {
                 'Uang Excel (Rp)': (l.excelRp === null || l.excelRp === undefined) ? '' : l.excelRp,
                 'Selisih Uang (Rp)': (l.selisihRp === null || l.selisihRp === undefined) ? '' : l.selisihRp,
                 'Status Transaksi Excel': l.txStatus || '',
+                'Beda dengan Excel': (l.beda || []).map(b => ({ trx: 'No Trans', pcs: 'Pcs', vol: 'Volume', rp: 'Uang' })[b.f] + ' (Excel ' + b.ex + ')').join('; '),
                 'Dihitung di Total': l.txCounted === false ? 'Tidak' : 'Ya'
             }));
 
@@ -1860,6 +1914,8 @@ const OfflineXlsx = (() => {
 
         window.onload = function() {
             applyTheme(document.documentElement.getAttribute('data-theme') || 'dark', false);
+            const dupRemoved = dedupeLogs();
+            if (dupRemoved) window.__dupMsg = dupRemoved + ' data dobel dihapus otomatis.';
             normalizeAllSuppliers();
             saveAndRefresh();
         };
