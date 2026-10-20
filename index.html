@@ -1168,6 +1168,7 @@ const OfflineXlsx = (() => {
             const pool = logs.map(l => l.supplier);
             logs.forEach(l => {
                 l.supplier = String(canonicalSupplier(l.supplierRaw, pool)).toUpperCase();
+                if (Array.isArray(l.detail)) l.detail = l.detail.filter(d => Number(d.pcs) || Number(d.volume) || Number(d.rp));   // buang jenis kosong dari data lama
                 if (l.nopol && l.nopol !== '-') l.nopol = fmtNopol(l.nopol);
             });
         }
@@ -1387,7 +1388,7 @@ const OfflineXlsx = (() => {
             const grand = pairs.filter(p => p.isGrand).pop();
             // per jenis (judul): kalau jenis itu punya baris Total/Ttl, rincian ukuran tidak ikut dijumlah (cegah hitung dobel)
             const groups = [], gi = {};
-            pairs.filter(p => !p.isGrand).forEach(p => { const g = p.grp || ''; if (!(g in gi)) { gi[g] = groups.length; groups.push([]); } groups[gi[g]].push(p); });
+            pairs.filter(p => !p.isGrand && !(p.pcs === 0 && Number(p.volume) === 0)).forEach(p => { const g = p.grp || ''; if (!(g in gi)) { gi[g] = groups.length; groups.push([]); } groups[gi[g]].push(p); });
             const rest = [];
             groups.forEach(arr => { const tots = arr.filter(p => p.plainTotal); if (tots.length) rest.push(tots[tots.length - 1]);
                 else if (arr.every(p => p.isSize)) rest.push({ label: arr[0].grp || arr[0].label, grp: arr[0].grp, pcs: arr.reduce((a, p) => a + p.pcs, 0), volume: (arr.reduce((a, p) => a + Math.round(Number(p.volume) * 1000), 0) / 1000).toFixed(3), rp: arr.reduce((a, p) => a + (p.rp || 0), 0) });
