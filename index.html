@@ -1196,6 +1196,16 @@ const OfflineXlsx = (() => {
             try { localStorage.setItem('lpa_excel_totals_v1', JSON.stringify(excelTotals)); } catch (e) {}
             if (excelRows.length) compareData(true); else renderTable();
         }
+        function dateKey(t) { const m = String(t || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? Number(m[3]) * 10000 + Number(m[2]) * 100 + Number(m[1]) : 99999999; }
+        function trxKey(t) { const d = String(t || '').replace(/\D/g, ''); return d ? Number(d) : Infinity; }
+        function sortLogs(arr) {
+            return arr.map((l, i) => [l, i]).sort((a, b) => {
+                const d = dateKey(a[0].tanggal) - dateKey(b[0].tanggal); if (d) return d;
+                const x = trxKey(a[0].noTrans), y = trxKey(b[0].noTrans);
+                if (x !== y) return x < y ? -1 : 1;
+                return a[1] - b[1];
+            }).map(z => z[0]);
+        }
         function dateScoped() {
             const el = document.getElementById('filterDate');
             const v = el ? el.value : 'all';
@@ -1245,7 +1255,7 @@ const OfflineXlsx = (() => {
                         excelRp: x.excelRp == null ? null : Number(x.excelRp) || 0, selisihRp: x.selisihRp == null ? null : Number(x.selisihRp) || 0,
                         excelBy: x.excelBy === 'supplier' || x.excelBy === 'trx' ? x.excelBy : null,
                         raw: clean(x.raw), pabrik: clean(x.pabrik), gtt: clean(x.gtt), txStatus: clean(x.txStatus), txCounted: x.txCounted === false ? false : true,
-                        detail: Array.isArray(x.detail) ? x.detail.slice(0, 20).map(t => ({ label: clean(t && t.label), pcs: Number(t && t.pcs) || 0, volume: clean(t && t.volume) })) : []
+                        detail: Array.isArray(x.detail) ? x.detail.slice(0, 20).map(t => ({ label: clean(t && t.label), pcs: Number(t && t.pcs) || 0, volume: clean(t && t.volume), rp: Number(t && t.rp) || 0 })) : []
                     };
                     const k = keyOf(l);
                     if (have.has(k)) { dup++; return; }
@@ -1322,11 +1332,12 @@ const OfflineXlsx = (() => {
         const GRAND_RE = /grand|gtt|g\.?\s*t\.?\s*t\b|jumlah/i;
         const PLAIN_TOTAL_RE = /^(total|ttl)$/i;
         const SKIP_LINE_RE = /tanggal|lap\s*tgl|nopol|no\s*pol|supplier|suplier|bakul|no\s*\.?\s*trans|kode\s*t|no\s*sakr|no\s*rek|\brek\b|a\/n|\brp\b|lpa|grader|lokasi|asal\s*log|tujuan|permintaan|status|^\s*sub\b|^\s*pt\./i;
+        function parseRp(t) { let x = String(t).trim().replace(/[\s.,\-]+$/, ''); x = x.replace(/,\d{1,2}$/, ''); const d = x.replace(/[^\d]/g, ''); return d ? Number(d) : 0; }
         function extractLogPairs(block) {
             const pairs = []; let prevText = '', lastPair = false;
             const SIZE_RE = /^\s*\d+\s*(?:[-\u2013]\s*\d+|up|ke\s*atas|\+)\s*[:=]?\s*$/i;
             const SIZE_LINE_RE = /^\s*\d+\s*(?:[-\u2013]\s*\d+|up|ke\s*atas|\+)\s*[:=]/i;
-            block.split(/\r?\n/).forEach(line => {
+            const proc = line => {
                 const L = line.replace(/[*_]/g, '').replace(/\brp\b\.?[ \t]*[:=;,]?[ \t]*(?:\d[\d.,]*[A-Za-z]?)?/gi, ' ');
                 if (SKIP_LINE_RE.test(L)) return;
                 if (/^\s*[\(\[]?\s*\d{1,2}\s*[\/\\]\s*\d{1,2}\s*[\)\]]?\s*$/.test(L)) return;   // penanda halaman "2/3"
@@ -1354,6 +1365,15 @@ const OfflineXlsx = (() => {
                 }
                 if (!found && L.trim() && !/\d{5,}/.test(L) && !SIZE_LINE_RE.test(L)) prevText = L.replace(/[:=\-\u2013]+/g, ' ').replace(/\s+/g, ' ').trim();
                 if (L.trim()) lastPair = found && !sawSize;
+            };
+            block.split(/\r?\n/).forEach(line => {
+                const hits = [], rr = /\brp\b\.?[ \t]*[:=;,]?[ \t]*(\d{1,3}(?:[ \t]\d{3}(?!\d))+(?:[.,]\d{3})*|\d[\d.,]*)/gi;
+                const cleaned = line.replace(/[*_]/g, ''); let rm;
+                while ((rm = rr.exec(cleaned)) !== null) { const v = parseRp(rm[1]); if (v >= 1000) hits.push(v); }
+                const before = pairs.length;
+                proc(line);
+                const totalLine = /\b(?:total|ttl|grand|gtt|jumlah)\b/i.test(cleaned) && pairs.length === before;   // baris total tanpa pasangan pcs: uangnya milik total, bukan jenis terakhir
+                if (hits.length && pairs.length && !totalLine) { const t = pairs[pairs.length - 1]; t.rp = (t.rp || 0) + hits.reduce((x, y) => x + y, 0); }   // uang jenis log tsb
             });
             return pairs;
         }
@@ -1361,7 +1381,7 @@ const OfflineXlsx = (() => {
             if (!pairs.length) return { pcs: 0, volume: '0.000', detail: [], warn: false };
             const mil = p => Math.round(Number(p.volume) * 1000);
             const sumOf = arr => ({ pcs: arr.reduce((a, p) => a + p.pcs, 0), mil: arr.reduce((a, p) => a + mil(p), 0) });
-            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume })), warn: !!warn });
+            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume, rp: p.rp || 0 })), warn: !!warn });
             const grand = pairs.filter(p => p.isGrand).pop();
             // per jenis (judul): kalau jenis itu punya baris Total/Ttl, rincian ukuran tidak ikut dijumlah (cegah hitung dobel)
             const groups = [], gi = {};
@@ -1457,7 +1477,7 @@ const OfflineXlsx = (() => {
                 fdEl.innerHTML = '<option value="all">Semua tanggal</option>' + dates.map(d => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join('');
                 fdEl.value = dates.includes(cur) ? cur : 'all';
             }
-            const scoped = dateScoped();
+            const scoped = sortLogs(dateScoped());
             const counted = scoped.filter(l => l.txCounted !== false);
             const trxCount = {}; logs.forEach(l => { if (l.noTrans) trxCount[l.noTrans] = (trxCount[l.noTrans] || 0) + 1; });
             tbody.innerHTML = '';
@@ -1855,30 +1875,26 @@ const OfflineXlsx = (() => {
         }
 
         function exportToExcel() {
-            if(logs.length === 0) {
-                showToast('Tidak ada data untuk diexport.', 'info');
-                return;
-            }
-            const exportData = logs.map((l, idx) => ({
-                No: idx + 1,
-                Tanggal: l.tanggal,
-                'No Transaksi': l.noTrans,
-                Supplier: l.supplier,
-                'LPA / Grader': l.lpa,
-                Nopol: l.nopol,
-                Pcs: l.pcs,
-                'Volume (m3)': l.volume,
-                'Total Uang (Rp)': l.totalUang,
-                'Status Excel': l.excelStatus,
-                'Uang Excel (Rp)': (l.excelRp === null || l.excelRp === undefined) ? '' : l.excelRp,
-                'Selisih Uang (Rp)': (l.selisihRp === null || l.selisihRp === undefined) ? '' : l.selisihRp,
-                'Status Transaksi Excel': l.txStatus || '',
-                'Beda dengan Excel': (l.beda || []).map(b => ({ trx: 'No Trans', pcs: 'Pcs', vol: 'Volume', rp: 'Uang' })[b.f] + ' (Excel ' + b.ex + ')').join('; '),
-                'Dihitung di Total': l.txCounted === false ? 'Tidak' : 'Ya'
-            }));
-
-            OfflineXlsx.writeXlsx(exportData, "Rekap Log Harian", "Rekap_Log_LPA_S.xlsx");
-            showToast('File Excel rekap berhasil diunduh!');
+            const scope = dateScoped();
+            const rows = sortLogs(scope.filter(l => l.txCounted !== false));
+            const skipped = scope.length - rows.length;
+            if (!rows.length) { showToast('Tidak ada data untuk diexport.', 'info'); return; }
+            const out = [];
+            const jl = x => String(x || '-').replace(/([A-Za-z])\.(?=\d)/g, '$1 ').replace(/\s+/g, ' ').trim() || '-';
+            rows.forEach(l => {
+                const det = Array.isArray(l.detail) ? l.detail : [];
+                const sumRp = det.reduce((a, d) => a + Number(d.rp || 0), 0), sumP = det.reduce((a, d) => a + Number(d.pcs || 0), 0);
+                const perJenis = det.length > 1 && det.every(d => Number(d.rp) > 0) && Math.abs(sumRp - Number(l.totalUang || 0)) <= 1 && sumP === Number(l.pcs || 0);
+                if (perJenis) {
+                    det.forEach(d => out.push({ 'Tanggal': l.tanggal, 'No Transaksi': l.noTrans || '', 'Jenis Log': jl(d.label), 'Pcs': Number(d.pcs) || 0, 'Volume (m³)': Number(d.volume) || 0, 'Uang (Rp)': Number(d.rp) || 0 }));
+                } else {
+                    out.push({ 'Tanggal': l.tanggal, 'No Transaksi': l.noTrans || '', 'Jenis Log': det.length ? det.map(d => jl(d.label)).join(' + ') : '-', 'Pcs': Number(l.pcs) || 0, 'Volume (m³)': Number(l.volume) || 0, 'Uang (Rp)': Number(l.totalUang) || 0 });
+                }
+            });
+            const d = new Date(), p2 = n => String(n).padStart(2, '0');
+            const stamp = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+            OfflineXlsx.writeXlsx(out, 'Rekap Log Harian', 'Rekap_Log_LPA_S_' + stamp + '.xlsx');
+            showToast('Export ' + out.length + ' baris dari ' + rows.length + ' laporan.' + (skipped ? ' ' + skipped + ' laporan tidak dihitung (status Excel) tidak ikut.' : ''));
         }
 
         // ===== Tema terang / gelap =====
