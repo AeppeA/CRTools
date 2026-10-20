@@ -1383,13 +1383,15 @@ const OfflineXlsx = (() => {
             if (!pairs.length) return { pcs: 0, volume: '0.000', detail: [], warn: false };
             const mil = p => Math.round(Number(p.volume) * 1000);
             const sumOf = arr => ({ pcs: arr.reduce((a, p) => a + p.pcs, 0), mil: arr.reduce((a, p) => a + mil(p), 0) });
-            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume, rp: p.rp || 0 })), warn: !!warn });
+            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: stdJenis(p.label), pcs: p.pcs, volume: p.volume, rp: p.rp || 0 })), warn: !!warn });
             const grand = pairs.filter(p => p.isGrand).pop();
             // per jenis (judul): kalau jenis itu punya baris Total/Ttl, rincian ukuran tidak ikut dijumlah (cegah hitung dobel)
             const groups = [], gi = {};
             pairs.filter(p => !p.isGrand).forEach(p => { const g = p.grp || ''; if (!(g in gi)) { gi[g] = groups.length; groups.push([]); } groups[gi[g]].push(p); });
             const rest = [];
-            groups.forEach(arr => { const tots = arr.filter(p => p.plainTotal); if (tots.length) rest.push(tots[tots.length - 1]); else arr.forEach(p => rest.push(p)); });
+            groups.forEach(arr => { const tots = arr.filter(p => p.plainTotal); if (tots.length) rest.push(tots[tots.length - 1]);
+                else if (arr.every(p => p.isSize)) rest.push({ label: arr[0].grp || arr[0].label, grp: arr[0].grp, pcs: arr.reduce((a, p) => a + p.pcs, 0), volume: (arr.reduce((a, p) => a + Math.round(Number(p.volume) * 1000), 0) / 1000).toFixed(3), rp: arr.reduce((a, p) => a + (p.rp || 0), 0) });
+                else arr.forEach(p => rest.push(p)); });
             if (grand) {
                 if (!rest.length) return mk([grand], { pcs: grand.pcs, mil: mil(grand) }, false);
                 const s1 = sumOf(rest);
@@ -1516,7 +1518,7 @@ const OfflineXlsx = (() => {
                 tr.className = 'hover:bg-white/5 transition' + (item.txCounted === false ? ' row-excluded' : '');
                 tr.innerHTML = `
                     <td data-c="tgl" class="p-3 font-semibold text-slate-200">${esc(item.tanggal || '-')}</td>
-                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? d.label + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}${(item.beda && item.beda.length) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Beda dengan Excel: ' + item.beda.map(b => ({ trx: 'No Trans', pcs: 'Pcs', vol: 'Volume', rp: 'Uang' })[b.f]).join(', ') + (item.bedaBy === 'supplier' ? ' (per supplier)' : '') + '</div>' : ''}${(item.noTrans && trxCount[item.noTrans] > 1) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ No Trans dobel</div>' : ''}${item.gtt ? `<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Gtt WA: ${esc(item.gtt)} (beda dengan jumlah jenis)</div>` : ''}</td>
+                    <td data-c="sup" class="p-3 font-bold text-white">${esc(item.supplier)}${(item.detail && item.detail.length > 1) ? `<div class="text-[10px] text-slate-400 font-normal mt-1">${item.detail.map(d => esc((d.label ? stdJenis(d.label) + ' ' : '') + d.pcs + '/' + d.volume)).join(' + ')}</div>` : ''}${(item.beda && item.beda.length) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Beda dengan Excel: ' + item.beda.map(b => ({ trx: 'No Trans', pcs: 'Pcs', vol: 'Volume', rp: 'Uang' })[b.f]).join(', ') + (item.bedaBy === 'supplier' ? ' (per supplier)' : '') + '</div>' : ''}${(item.noTrans && trxCount[item.noTrans] > 1) ? '<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ No Trans dobel</div>' : ''}${item.gtt ? `<div class="text-[10px] text-gold-300 font-semibold mt-1">⚠ Gtt WA: ${esc(item.gtt)} (beda dengan jumlah jenis)</div>` : ''}</td>
                     <td data-c="nop" class="p-3 text-slate-300">${esc(item.nopol || '-')}<br><span class="text-[10px] text-slate-400 font-mono">Tr: ${dv(item, 'trx', esc(item.noTrans || '-'))}</span></td>
                     <td data-c="pcs" data-l="Pcs" class="p-3 text-center font-bold text-white">${dv(item, 'pcs', item.pcs)}${!Number(item.pcs) ? '<br><span class="text-[10px] text-gold-300 font-semibold">⚠ cek</span>' : ''}${(item.detail && item.detail.length > 1) ? `<br><span class="text-[10px] text-gold-300 font-semibold">${item.detail.length} jenis</span>` : ''}</td>
                     <td data-c="vol" data-l="Volume" class="p-3 text-right font-bold text-bronze-300">${dv(item, 'vol', esc(item.volume))}</td>
@@ -1876,13 +1878,30 @@ const OfflineXlsx = (() => {
                 + '<br><span class="text-[10px] font-semibold ' + (ok ? 'text-olive-300' : 'text-gold-300') + '">Selisih: ' + (ok ? '✓ sama' : (d > 0 ? '+' : '−') + formatRupiah(Math.abs(d))) + '</span>';
         }
 
-        function parseJenis(label) {
+        function stdMaterial(name) {
+            const toks = String(name || '').toLowerCase().split(/[^a-z]+/).filter(t => t && t !== 'log' && t !== 'kayu');
+            const f = toks[0] || '';
+            if (!f) return '';
+            if (/^alb[ai]/.test(f) || f.startsWith('sengon') || (f.length >= 4 && within1(f, 'sengon'))) return 'SENGON';
+            return toks.join(' ').toUpperCase();
+        }
+        function parseJenis1(label) {
             const t = String(label || '').replace(/[:=]/g, ' ').replace(/([A-Za-z])\.(?=\d)/g, '$1 ').replace(/\s+/g, ' ').trim();
             const m = t.match(/(\d{2,3})\s*(?:cm)?\b/);
             const pjg = m ? Number(m[1]) : null;
-            let mat = t.replace(/(\d{2,3})\s*(?:cm)?\b/, ' ').replace(/\blog\b/ig, ' ').replace(/\s+/g, ' ').trim();
-            mat = mat ? mat.charAt(0).toUpperCase() + mat.slice(1).toLowerCase() : '-';
+            const mat = stdMaterial(t.replace(/(\d{2,3})\s*(?:cm)?\b/, ' ')) || '-';
             return { mat: mat, pjg: pjg };
+        }
+        function parseJenis(label) {
+            const parts = String(label || '').split('+').map(x => x.trim()).filter(Boolean);
+            const js = (parts.length ? parts : ['']).map(parseJenis1);
+            const pj = js.map(j => j.pjg);
+            return { mat: js.map(j => j.mat).join(' + '), pjg: pj.every(x => x === pj[0]) ? pj[0] : null };
+        }
+        function stdJenis(label) {
+            const raw = String(label || '').trim();
+            if (!/[A-Za-z]/.test(raw)) return raw;
+            return raw.split('+').map(x => x.trim()).filter(Boolean).map(p => { const j = parseJenis1(p); return j.pjg ? j.mat + ' ' + j.pjg : j.mat; }).join(' + ');
         }
         function normPjg(v) { const n = parseNum(v, 'vol'); if (!n) return null; return n < 10 ? Math.round(n * 100) : Math.round(n); }
         function matKey(x) { return String(x || '').toLowerCase().replace(/\blog\b/g, '').replace(/[^a-z]/g, ''); }
@@ -1899,23 +1918,26 @@ const OfflineXlsx = (() => {
             const cols = hasExcel ? pickCols(excelRows) : {};
             const granular = hasExcel && !!cols.kM && !!cols.kT;
             const r3 = x => Math.round(x * 1000) / 1000;
-            // 1) sisi WA
+            // 1) sisi WA: satu baris per jenis log; jika uang tidak dirinci per jenis, ada baris TOTAL UID
             const wa = [];
             waLogs.forEach(l => {
                 const det = Array.isArray(l.detail) ? l.detail : [];
-                const sumRp = det.reduce((a, d) => a + Number(d.rp || 0), 0), sumP = det.reduce((a, d) => a + Number(d.pcs || 0), 0);
-                const perJenis = det.length > 1 && det.every(d => Number(d.rp) > 0) && Math.abs(sumRp - Number(l.totalUang || 0)) <= 1 && sumP === Number(l.pcs || 0);
-                if ((!hasExcel || granular) && perJenis) {
-                    det.forEach(d => { const j = parseJenis(d.label); wa.push({ tgl: l.tanggal, uid: l.noTrans || '', mat: j.mat, pjg: j.pjg, pcs: Number(d.pcs) || 0, vol: Number(d.volume) || 0, rp: Number(d.rp) || 0, uidLevel: false }); });
-                } else if (det.length <= 1) {
-                    const j = parseJenis(det[0] && det[0].label);
-                    wa.push({ tgl: l.tanggal, uid: l.noTrans || '', mat: j.mat, pjg: j.pjg, pcs: Number(l.pcs) || 0, vol: Number(l.volume) || 0, rp: Number(l.totalUang) || 0, uidLevel: hasExcel && !granular });
-                } else {
-                    const lab = det.map(d => { const j = parseJenis(d.label); return j.pjg ? j.mat + ' ' + j.pjg : j.mat; }).join(' + ');
-                    wa.push({ tgl: l.tanggal, uid: l.noTrans || '', mat: lab, pjg: null, pcs: Number(l.pcs) || 0, vol: Number(l.volume) || 0, rp: Number(l.totalUang) || 0, uidLevel: hasExcel });
+                const base = { tgl: l.tanggal, uid: l.noTrans || '' };
+                const sumRp = det.reduce((a, d) => a + Number(d.rp || 0), 0);
+                const itemized = det.length > 1 && det.every(d => Number(d.rp) > 0) && Math.abs(sumRp - Number(l.totalUang || 0)) <= 1;
+                const tot = { pcs: Number(l.pcs) || 0, vol: Number(l.volume) || 0, rp: Number(l.totalUang) || 0 };
+                if (hasExcel && !granular) {
+                    wa.push(Object.assign({}, base, { mat: det.length ? det.map(d => stdJenis(d.label)).join(' + ') : '-', pjg: null, kind: 'uid' }, tot)); return;
                 }
+                if (det.length <= 1) {
+                    const j = parseJenis(det[0] && det[0].label);
+                    wa.push(Object.assign({}, base, { mat: j.mat, pjg: j.pjg, kind: 'item' }, tot)); return;
+                }
+                det.forEach(d => { const j = parseJenis(d.label); wa.push(Object.assign({}, base, { mat: j.mat, pjg: j.pjg, kind: 'item', pcs: Number(d.pcs) || 0, vol: Number(d.volume) || 0, rp: itemized ? (Number(d.rp) || 0) : null })); });
+                if (!itemized) wa.push(Object.assign({}, base, { mat: 'TOTAL UID', pjg: null, kind: 'total' }, tot));
             });
-            // 2) sisi Excel (hanya status aktif, pabrik terpilih, tanggal yang ada di WA)
+            wa.forEach((w, i) => { w.seq = i; });
+            // 2) sisi Excel (status aktif, pabrik terpilih, tanggal yang ada di WA)
             const ex = [];
             if (hasExcel) {
                 const waDates = new Set(waLogs.map(l => l.tanggal));
@@ -1927,44 +1949,49 @@ const OfflineXlsx = (() => {
                     const tgl = cols.kD ? normDate(r[cols.kD]) : '';
                     if (cols.kD && tgl && !waDates.has(tgl)) return;
                     const g = k => (k ? String(r[k] == null ? '' : r[k]).trim() : '');
-                    ex.push({ tgl: tgl, uid: g(cols.kT), mat: g(cols.kM), pjg: cols.kL ? normPjg(r[cols.kL]) : null, pcs: cols.kP ? parseNum(r[cols.kP], 'n') : 0, vol: cols.kV ? parseNum(r[cols.kV], 'vol') : 0, rp: cols.kR ? Math.round(parseNum(r[cols.kR], 'n')) : 0, used: false });
+                    ex.push({ tgl: tgl, uid: g(cols.kT), mat: stdMaterial(g(cols.kM)), pjg: cols.kL ? normPjg(r[cols.kL]) : null, pcs: cols.kP ? parseNum(r[cols.kP], 'n') : 0, vol: cols.kV ? parseNum(r[cols.kV], 'vol') : 0, rp: cols.kR ? Math.round(parseNum(r[cols.kR], 'n')) : 0, used: false });
                 });
             }
             const sumOf = arr => ({ pcs: arr.reduce((a, e) => a + e.pcs, 0), vol: r3(arr.reduce((a, e) => a + e.vol, 0)), rp: arr.reduce((a, e) => a + e.rp, 0) });
             const uidEq = (a, b) => a && b && (a === b || a.includes(b) || b.includes(a));
+            const matEq = (a, b) => !a || !b || a === b || matMatch(a, b);
             // 3) pasangkan
             const rows = [];
             wa.forEach(w => {
                 let cand = (hasExcel && w.uid) ? ex.filter(e => uidEq(e.uid, w.uid)) : [];
-                if (cand.length && !w.uidLevel) cand = cand.filter(e => matMatch(w.mat, e.mat) && (w.pjg == null || e.pjg == null || w.pjg === e.pjg));
-                cand.forEach(e => { e.used = true; });
-                rows.push({ tgl: w.tgl, uid: w.uid, mat: (cand.length && !w.uidLevel && cand[0].mat) ? cand[0].mat : w.mat, pjg: w.pjg != null ? w.pjg : ((cand.length && !w.uidLevel) ? cand[0].pjg : null),
-                            w: { pcs: w.pcs, vol: r3(w.vol), rp: Math.round(w.rp) }, e: cand.length ? sumOf(cand) : null, uidLevel: w.uidLevel && cand.length > 0 });
+                if (cand.length && w.kind === 'item' && granular) cand = cand.filter(e => matEq(w.mat, e.mat) && (w.pjg == null || e.pjg == null || w.pjg === e.pjg));
+                if (w.kind !== 'total') cand.forEach(e => { e.used = true; });
+                const useEx = cand.length && w.kind === 'item' && cand[0].mat;
+                rows.push({ tgl: w.tgl, uid: w.uid, mat: useEx ? cand[0].mat : w.mat, pjg: w.pjg != null ? w.pjg : ((cand.length && w.kind === 'item') ? cand[0].pjg : null),
+                            w: { pcs: w.pcs, vol: r3(w.vol), rp: w.rp == null ? null : Math.round(w.rp) }, e: cand.length ? sumOf(cand) : null, kind: w.kind, ord: w.kind === 'total' ? 1 : 0, seq: w.seq });
             });
             const grp = {};
             ex.filter(e => !e.used).forEach(e => {
-                const k = [e.tgl, e.uid, matKey(e.mat), e.pjg].join('|');
+                const k = [e.tgl, e.uid, e.mat, e.pjg].join('|');
                 if (!grp[k]) grp[k] = { tgl: e.tgl, uid: e.uid, mat: e.mat, pjg: e.pjg, list: [] };
                 grp[k].list.push(e);
             });
-            Object.keys(grp).forEach(k => { const g = grp[k]; rows.push({ tgl: g.tgl, uid: g.uid, mat: g.mat || '-', pjg: g.pjg, w: null, e: sumOf(g.list) }); });
-            rows.sort((a, b) => (dateKey(a.tgl) - dateKey(b.tgl)) || (trxKey(a.uid) === trxKey(b.uid) ? 0 : (trxKey(a.uid) < trxKey(b.uid) ? -1 : 1)) || String(a.mat).localeCompare(String(b.mat)) || ((a.pjg || 0) - (b.pjg || 0)));
+            Object.keys(grp).forEach(k => { const g = grp[k]; rows.push({ tgl: g.tgl, uid: g.uid, mat: g.mat || '-', pjg: g.pjg, w: null, e: sumOf(g.list), kind: 'ex', ord: 0 }); });
+            rows.sort((a, b) => (dateKey(a.tgl) - dateKey(b.tgl)) || (trxKey(a.uid) === trxKey(b.uid) ? 0 : (trxKey(a.uid) < trxKey(b.uid) ? -1 : 1)) || (a.ord - b.ord) || ((a.seq == null ? 1e9 : a.seq) - (b.seq == null ? 1e9 : b.seq)) || String(a.mat).localeCompare(String(b.mat)) || ((a.pjg || 0) - (b.pjg || 0)));
             // 4) tulis baris
             const cnt = { sama: 0, beda: 0, waOnly: 0, exOnly: 0 };
             const out = rows.map(x => {
                 const w = x.w, e = x.e; let st;
                 if (w && e) {
-                    const d = []; if (w.pcs !== e.pcs) d.push('PCS'); if (Math.abs(w.vol - e.vol) > 0.0005) d.push('VOL'); if (w.rp !== e.rp) d.push('Rp');
-                    st = d.length ? 'Beda: ' + d.join(', ') : 'Sama'; if (x.uidLevel) st += ' (dibandingkan per Uid)';
+                    const d = []; if (w.pcs !== e.pcs) d.push('PCS'); if (Math.abs(w.vol - e.vol) > 0.0005) d.push('VOL'); if (w.rp != null && w.rp !== e.rp) d.push('Rp');
+                    st = d.length ? 'Beda: ' + d.join(', ') : 'Sama';
+                    if (w.rp == null) st += ' (Rp dibandingkan di baris TOTAL UID)';
+                    if (x.kind === 'uid') st += ' (dibandingkan per Uid)';
                     if (d.length) cnt.beda++; else cnt.sama++;
                 } else if (w) { st = hasExcel ? 'Hanya di WA' : 'Excel belum diunggah'; cnt.waOnly++; }
                 else { st = 'Hanya di Excel'; cnt.exOnly++; }
                 return { 'Tanggal': x.tgl, 'Uid': x.uid, 'Material Type': x.mat, 'Pjg': x.pjg == null ? '' : x.pjg,
                     'PCS WA': w ? w.pcs : '', 'PCS Excel': e ? e.pcs : '', 'Selisih PCS': (w && e) ? w.pcs - e.pcs : '',
                     'VOL WA': w ? w.vol : '', 'VOL Excel': e ? e.vol : '', 'Selisih VOL': (w && e) ? r3(w.vol - e.vol) : '',
-                    'Rp WA': w ? w.rp : '', 'Rp Excel': e ? e.rp : '', 'Selisih Rp': (w && e) ? w.rp - e.rp : '', 'Status': st };
+                    'Rp WA': (w && w.rp != null) ? w.rp : '', 'Rp Excel': (e && !(w && w.rp == null && x.kind !== 'total' && false)) ? e.rp : '', 'Selisih Rp': (w && e && w.rp != null) ? w.rp - e.rp : '', 'Status': st };
             });
-            const tw = sumOf(rows.filter(x => x.w).map(x => x.w)), te = sumOf(rows.filter(x => x.e).map(x => x.e));
+            const tw = { pcs: waLogs.reduce((a, l) => a + (Number(l.pcs) || 0), 0), vol: r3(waLogs.reduce((a, l) => a + (Number(l.volume) || 0), 0)), rp: waLogs.reduce((a, l) => a + (Number(l.totalUang) || 0), 0) };
+            const te = sumOf(ex);
             out.push({ 'Tanggal': 'TOTAL', 'Uid': '', 'Material Type': '', 'Pjg': '',
                 'PCS WA': tw.pcs, 'PCS Excel': hasExcel ? te.pcs : '', 'Selisih PCS': hasExcel ? tw.pcs - te.pcs : '',
                 'VOL WA': tw.vol, 'VOL Excel': hasExcel ? te.vol : '', 'Selisih VOL': hasExcel ? r3(tw.vol - te.vol) : '',
