@@ -995,8 +995,9 @@ const OfflineXlsx = (() => {
             const kF = pick([/^\s*(pabrik|factory|plant)\b/i, /pabrik|factory|plant/i]);
             const kT = pick([/^\s*uid\s*$/i, /^\s*(no\.?\s*)?trans(aksi)?\s*(no|id|number)?\s*$/i, /no\.?\s*trans|transaction\s*(no|id|number|code)|kode\s*trans|nomor\s*trans|^\s*kt\s*$|trx/i]);
             const kM = pick([/^\s*material\s*type\s*$/i, /material\s*type|jenis\s*(log|kayu|material)|^\s*material\s*$/i]);
-            const kL = pick([/^\s*(pjg|panjang|length)\s*(\(.*\))?\s*$/i, /\bpjg\b|panjang|length/i]);
-            return { heads, kP, kV, kR, kD, kF, kT, kM, kL };
+            const kL = pick([/^\s*(material\s*length|pjg|panjang|length)\s*(\(.*\))?\s*$/i, /material\s*length|\bpjg\b|panjang|length/i]);
+            const kG = pick([/^\s*material\s*grade\s*$/i, /material\s*grade|^\s*grade\s*$/i]);
+            return { heads, kP, kV, kR, kD, kF, kT, kM, kL, kG };
         }
         const OK_STATUS = ['approved', 'delivery', 'need_approval', 'received'];
         function normStatus(v) { return String(v == null ? '' : v).trim().toLowerCase().replace(/[\s\-]+/g, '_'); }
@@ -1168,6 +1169,13 @@ const OfflineXlsx = (() => {
             const pool = logs.map(l => l.supplier);
             logs.forEach(l => {
                 l.supplier = String(canonicalSupplier(l.supplierRaw, pool)).toUpperCase();
+                if (l.raw && Array.isArray(l.detail) && l.detail.length && l.dv !== 4) {
+                    try {
+                        const sm = summarizePairs(extractLogPairs(l.raw)), sp = sm.detail.reduce((a, d) => a + d.pcs, 0), sv = sm.detail.reduce((a, d) => a + Math.round(Number(d.volume) * 1000), 0);
+                        if (sm.detail.length && sp === Number(l.pcs) && Math.abs(sv - Math.round(Number(l.volume) * 1000)) <= 1) l.detail = sm.detail;
+                    } catch (e) {}
+                    l.dv = 4;
+                }
                 if (Array.isArray(l.detail)) l.detail = mergeDetail(l.detail.filter(d => Number(d.pcs) || Number(d.volume) || Number(d.rp)));   // buang jenis kosong dari data lama
                 if (l.nopol && l.nopol !== '-') l.nopol = fmtNopol(l.nopol);
             });
@@ -1690,6 +1698,7 @@ const OfflineXlsx = (() => {
                         raw: block.trim(),
                         pabrik: curFactory,
                         gtt: gttNote,
+                        dv: 4,
                         lpa: lpa,
                         nopol: nopol,
                         noTrans: noTrans,
@@ -1897,7 +1906,8 @@ const OfflineXlsx = (() => {
             if (is('jabon')) return 'JABON';
             if (is('karet')) return 'KARET';
             if (/^mahon/.test(f) || is('mahoni')) return 'MAHONI';
-            return 'CAMPURAN';   // PULAI, PULE, JENITRI, dan jenis lain masuk CAMPURAN
+            if (/^pul(ai|e)/.test(f) || is('pulai')) return 'PULAI';   // CAMPURAN grade K di Excel
+            return 'CAMPURAN';   // JENITRI, KEMBANG, DURIAN, dan jenis lain = CAMPURAN grade A
         }
         function parseJenis1(label) {
             const t = String(label || '').replace(/[:=]/g, ' ').replace(/([A-Za-z])\.(?=\d)/g, '$1 ').replace(/\s+/g, ' ').trim();
@@ -1923,6 +1933,10 @@ const OfflineXlsx = (() => {
             const x = matKey(a), y = matKey(b);
             if (!x || !y) return true;
             return x === y || x.startsWith(y) || y.startsWith(x) || (x.length >= 4 && y.length >= 4 && within1(x, y));
+        }
+        function exTypeGrade(matStr, gradeStr, hasGrade) {
+            const d = stdMaterial(matStr);
+            return { type: d === 'PULAI' ? 'CAMPURAN' : d, grade: hasGrade ? String(gradeStr || '').trim().toUpperCase() : (d === 'PULAI' ? 'K' : null) };
         }
         function exportToExcel() {
             const scope = dateScoped();
@@ -1951,6 +1965,10 @@ const OfflineXlsx = (() => {
                 if (!itemized) wa.push(Object.assign({}, base, { mat: 'TOTAL UID', pjg: null, kind: 'total' }, tot));
             });
             wa.forEach((w, i) => { w.seq = i; });
+            wa.forEach(w => {
+                const k = w.kind === 'total' ? { type: 'TOTAL UID', grade: '' } : ((/\+/.test(w.mat) || w.kind === 'uid') ? { type: w.mat, grade: '' } : (w.mat === 'PULAI' ? { type: 'CAMPURAN', grade: 'K' } : { type: w.mat, grade: 'A' }));
+                w.type = k.type; w.grade = k.grade;
+            });
             // 2) sisi Excel (status aktif, pabrik terpilih, tanggal yang ada di WA)
             const ex = [];
             if (hasExcel) {
@@ -1963,7 +1981,8 @@ const OfflineXlsx = (() => {
                     const tgl = cols.kD ? normDate(r[cols.kD]) : '';
                     if (cols.kD && tgl && !waDates.has(tgl)) return;
                     const g = k => (k ? String(r[k] == null ? '' : r[k]).trim() : '');
-                    ex.push({ tgl: tgl, uid: g(cols.kT), mat: stdMaterial(g(cols.kM)), pjg: cols.kL ? normPjg(r[cols.kL]) : null, pcs: cols.kP ? parseNum(r[cols.kP], 'n') : 0, vol: cols.kV ? parseNum(r[cols.kV], 'vol') : 0, rp: cols.kR ? Math.round(parseNum(r[cols.kR], 'n')) : 0, used: false });
+                    const tg = exTypeGrade(g(cols.kM), g(cols.kG), !!cols.kG);
+                    ex.push({ tgl: tgl, uid: g(cols.kT), mat: tg.type, grade: tg.grade, pjg: cols.kL ? normPjg(r[cols.kL]) : null, pcs: cols.kP ? parseNum(r[cols.kP], 'n') : 0, vol: cols.kV ? parseNum(r[cols.kV], 'vol') : 0, rp: cols.kR ? Math.round(parseNum(r[cols.kR], 'n')) : 0, used: false });
                 });
             }
             const sumOf = arr => ({ pcs: arr.reduce((a, e) => a + e.pcs, 0), vol: r3(arr.reduce((a, e) => a + e.vol, 0)), rp: arr.reduce((a, e) => a + e.rp, 0) });
@@ -1973,20 +1992,19 @@ const OfflineXlsx = (() => {
             const rows = [];
             wa.forEach(w => {
                 let cand = (hasExcel && w.uid) ? ex.filter(e => uidEq(e.uid, w.uid)) : [];
-                if (cand.length && w.kind === 'item' && granular) cand = cand.filter(e => matEq(w.mat, e.mat) && (w.pjg == null || e.pjg == null || w.pjg === e.pjg));
+                if (cand.length && w.kind === 'item' && granular) cand = cand.filter(e => matEq(w.type, e.mat) && (w.grade == null || e.grade == null || w.grade === e.grade) && (w.pjg == null || e.pjg == null || w.pjg === e.pjg));
                 if (w.kind !== 'total') cand.forEach(e => { e.used = true; });
-                const useEx = cand.length && w.kind === 'item' && cand[0].mat;
-                rows.push({ tgl: w.tgl, uid: w.uid, mat: useEx ? cand[0].mat : w.mat, pjg: w.pjg != null ? w.pjg : ((cand.length && w.kind === 'item') ? cand[0].pjg : null),
+                rows.push({ tgl: w.tgl, uid: w.uid, mat: w.kind === 'item' ? w.type : w.mat, grade: w.kind === 'item' ? (w.grade || '') : '', pjg: w.pjg != null ? w.pjg : ((cand.length && w.kind === 'item') ? cand[0].pjg : null),
                             w: { pcs: w.pcs, vol: r3(w.vol), rp: w.rp == null ? null : Math.round(w.rp) }, e: cand.length ? sumOf(cand) : null, kind: w.kind, ord: w.kind === 'total' ? 1 : 0, seq: w.seq });
             });
             const grp = {};
             ex.filter(e => !e.used).forEach(e => {
-                const k = [e.tgl, e.uid, e.mat, e.pjg].join('|');
-                if (!grp[k]) grp[k] = { tgl: e.tgl, uid: e.uid, mat: e.mat, pjg: e.pjg, list: [] };
+                const k = [e.tgl, e.uid, e.mat, e.pjg, e.grade].join('|');
+                if (!grp[k]) grp[k] = { tgl: e.tgl, uid: e.uid, mat: e.mat, grade: e.grade, pjg: e.pjg, list: [] };
                 grp[k].list.push(e);
             });
-            Object.keys(grp).forEach(k => { const g = grp[k]; rows.push({ tgl: g.tgl, uid: g.uid, mat: g.mat || '-', pjg: g.pjg, w: null, e: sumOf(g.list), kind: 'ex', ord: 0 }); });
-            rows.sort((a, b) => (dateKey(a.tgl) - dateKey(b.tgl)) || (trxKey(a.uid) === trxKey(b.uid) ? 0 : (trxKey(a.uid) < trxKey(b.uid) ? -1 : 1)) || (a.ord - b.ord) || ((a.seq == null ? 1e9 : a.seq) - (b.seq == null ? 1e9 : b.seq)) || String(a.mat).localeCompare(String(b.mat)) || ((a.pjg || 0) - (b.pjg || 0)));
+            Object.keys(grp).forEach(k => { const g = grp[k]; rows.push({ tgl: g.tgl, uid: g.uid, mat: g.mat || '-', grade: g.grade || '', pjg: g.pjg, w: null, e: sumOf(g.list), kind: 'ex', ord: 0 }); });
+            rows.sort((a, b) => (dateKey(a.tgl) - dateKey(b.tgl)) || (trxKey(a.uid) === trxKey(b.uid) ? 0 : (trxKey(a.uid) < trxKey(b.uid) ? -1 : 1)) || (a.ord - b.ord) || ((a.seq == null ? 1e9 : a.seq) - (b.seq == null ? 1e9 : b.seq)) || String(a.mat).localeCompare(String(b.mat)) || ((a.pjg || 0) - (b.pjg || 0)) || String(a.grade || '').localeCompare(String(b.grade || '')));
             // 4) tulis baris
             const cnt = { sama: 0, beda: 0, waOnly: 0, exOnly: 0 };
             const out = rows.map(x => {
@@ -1999,14 +2017,14 @@ const OfflineXlsx = (() => {
                     if (d.length) cnt.beda++; else cnt.sama++;
                 } else if (w) { st = hasExcel ? 'Hanya di WA' : 'Excel belum diunggah'; cnt.waOnly++; }
                 else { st = 'Hanya di Excel'; cnt.exOnly++; }
-                return { 'Tanggal': x.tgl, 'Uid': x.uid, 'Material Type': x.mat, 'Pjg': x.pjg == null ? '' : x.pjg,
+                return { 'Tanggal': x.tgl, 'Uid': x.uid, 'Material Type': x.mat, 'Pjg': x.pjg == null ? '' : x.pjg, 'Grade': x.grade || '',
                     'PCS WA': w ? w.pcs : '', 'PCS Excel': e ? e.pcs : '', 'Selisih PCS': (w && e) ? w.pcs - e.pcs : '',
                     'VOL WA': w ? w.vol : '', 'VOL Excel': e ? e.vol : '', 'Selisih VOL': (w && e) ? r3(w.vol - e.vol) : '',
                     'Rp WA': (w && w.rp != null) ? w.rp : '', 'Rp Excel': (e && !(w && w.rp == null && x.kind !== 'total' && false)) ? e.rp : '', 'Selisih Rp': (w && e && w.rp != null) ? w.rp - e.rp : '', 'Status': st };
             });
             const tw = { pcs: waLogs.reduce((a, l) => a + (Number(l.pcs) || 0), 0), vol: r3(waLogs.reduce((a, l) => a + (Number(l.volume) || 0), 0)), rp: waLogs.reduce((a, l) => a + (Number(l.totalUang) || 0), 0) };
             const te = sumOf(ex);
-            out.push({ 'Tanggal': 'TOTAL', 'Uid': '', 'Material Type': '', 'Pjg': '',
+            out.push({ 'Tanggal': 'TOTAL', 'Uid': '', 'Material Type': '', 'Pjg': '', 'Grade': '',
                 'PCS WA': tw.pcs, 'PCS Excel': hasExcel ? te.pcs : '', 'Selisih PCS': hasExcel ? tw.pcs - te.pcs : '',
                 'VOL WA': tw.vol, 'VOL Excel': hasExcel ? te.vol : '', 'Selisih VOL': hasExcel ? r3(tw.vol - te.vol) : '',
                 'Rp WA': tw.rp, 'Rp Excel': hasExcel ? te.rp : '', 'Selisih Rp': hasExcel ? tw.rp - te.rp : '', 'Status': '' });
