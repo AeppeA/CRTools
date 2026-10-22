@@ -1168,7 +1168,7 @@ const OfflineXlsx = (() => {
             const pool = logs.map(l => l.supplier);
             logs.forEach(l => {
                 l.supplier = String(canonicalSupplier(l.supplierRaw, pool)).toUpperCase();
-                if (Array.isArray(l.detail)) l.detail = l.detail.filter(d => Number(d.pcs) || Number(d.volume) || Number(d.rp));   // buang jenis kosong dari data lama
+                if (Array.isArray(l.detail)) l.detail = mergeDetail(l.detail.filter(d => Number(d.pcs) || Number(d.volume) || Number(d.rp)));   // buang jenis kosong dari data lama
                 if (l.nopol && l.nopol !== '-') l.nopol = fmtNopol(l.nopol);
             });
         }
@@ -1384,7 +1384,7 @@ const OfflineXlsx = (() => {
             if (!pairs.length) return { pcs: 0, volume: '0.000', detail: [], warn: false };
             const mil = p => Math.round(Number(p.volume) * 1000);
             const sumOf = arr => ({ pcs: arr.reduce((a, p) => a + p.pcs, 0), mil: arr.reduce((a, p) => a + mil(p), 0) });
-            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: arr.map(p => ({ label: stdJenis(p.label), pcs: p.pcs, volume: p.volume, rp: p.rp || 0 })), warn: !!warn });
+            const mk = (arr, t, warn) => ({ pcs: t.pcs, volume: (t.mil / 1000).toFixed(3), detail: mergeDetail(arr.map(p => ({ label: p.label, pcs: p.pcs, volume: p.volume, rp: p.rp || 0 }))), warn: !!warn });
             const grand = pairs.filter(p => p.isGrand).pop();
             // per jenis (judul): kalau jenis itu punya baris Total/Ttl, rincian ukuran tidak ikut dijumlah (cegah hitung dobel)
             const groups = [], gi = {};
@@ -1879,12 +1879,25 @@ const OfflineXlsx = (() => {
                 + '<br><span class="text-[10px] font-semibold ' + (ok ? 'text-olive-300' : 'text-gold-300') + '">Selisih: ' + (ok ? '✓ sama' : (d > 0 ? '+' : '−') + formatRupiah(Math.abs(d))) + '</span>';
         }
 
+        function mergeDetail(items) {
+            const m = {}, order = [];
+            (items || []).forEach(p => {
+                const k = stdJenis(p.label);
+                if (!(k in m)) { m[k] = { label: k, pcs: 0, mil: 0, rp: 0 }; order.push(k); }
+                m[k].pcs += Number(p.pcs) || 0; m[k].mil += Math.round(Number(p.volume) * 1000) || 0; m[k].rp += Number(p.rp) || 0;
+            });
+            return order.map(k => ({ label: k, pcs: m[k].pcs, volume: (m[k].mil / 1000).toFixed(3), rp: m[k].rp }));
+        }
         function stdMaterial(name) {
             const toks = String(name || '').toLowerCase().split(/[^a-z]+/).filter(t => t && t !== 'log' && t !== 'kayu');
             const f = toks[0] || '';
             if (!f) return '';
-            if (/^alb[ai]/.test(f) || f.startsWith('sengon') || (f.length >= 4 && within1(f, 'sengon'))) return 'SENGON';
-            return toks.join(' ').toUpperCase();
+            const is = w => f.startsWith(w) || (f.length >= 4 && within1(f, w));
+            if (/^alb[ai]/.test(f) || is('sengon')) return 'SENGON';
+            if (is('jabon')) return 'JABON';
+            if (is('karet')) return 'KARET';
+            if (/^mahon/.test(f) || is('mahoni')) return 'MAHONI';
+            return 'CAMPURAN';   // PULAI, PULE, JENITRI, dan jenis lain masuk CAMPURAN
         }
         function parseJenis1(label) {
             const t = String(label || '').replace(/[:=]/g, ' ').replace(/([A-Za-z])\.(?=\d)/g, '$1 ').replace(/\s+/g, ' ').trim();
